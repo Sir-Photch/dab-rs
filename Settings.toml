@@ -1,0 +1,2 @@
+DB_URL = "mysql://root:SilverStar_200@localhost:3306/discord_playlists"
+API_TOKEN = "MTAwNDQ2NDg2ODc2Nzg0NjUwMA.GlBD6o.Ehs88Mf9QUQ9XbJiwtis00OlBx3KVFBZafSYmo"

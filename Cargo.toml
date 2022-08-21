@@ -1,0 +1,32 @@
+[package]
+name = "dab-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.serenity]
+version = "0.11"
+features = ["http", "builder"]
+
+[dependencies.songbird]
+version = "0.3"
+
+[dependencies.tokio]
+version = "1.4"
+features = ["rt", "rt-multi-thread", "macros"]
+
+[dependencies.mysql_async]
+version = "*"
+
+[dependencies.url]
+version = "*"
+
+[dependencies.config]
+version = "*"
+
+[dependencies.log]
+version = "*"
+
+[dependencies.stderrlog]
+version = "*"
