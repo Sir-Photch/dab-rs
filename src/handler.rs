@@ -23,7 +23,7 @@ pub struct Handler {
     sink : Box<dyn chimes::ChimeSink>,
     queues : Mutex<
         HashMap<u64, // guilds
-            Box<Mutex<HashMap<u64, VecDeque<Input>>>> // channels
+            Mutex<HashMap<u64, VecDeque<Input>>> // channels
             >
         >,
     active_guilds : Mutex<HashSet<u64>>
@@ -70,6 +70,8 @@ impl EventHandler for Handler {
     }
 
     async fn voice_state_update(&self, ctx: Context, old: Option<serenity::model::voice::VoiceState>, new: serenity::model::voice::VoiceState) {
+        use tokio::task;
+
         let user = new.user_id.to_user(&ctx.http).await;
         if user.is_err() {
             error!("Unexpected error, user could not be retrieved! {:#?}", user);
@@ -90,7 +92,7 @@ impl EventHandler for Handler {
 
         if let Some(prev) = old.and_then(|state| state.channel_id) {
             if prev == channel_id {
-                return;
+                return
             }
         }
 
@@ -100,11 +102,54 @@ impl EventHandler for Handler {
 
         if new.guild_id == None {
             warn!("Unexpected: user connected to unknown guild");
-            return;
+            return
         }
         let guild_id = new.guild_id.unwrap();
 
-        todo!();
+        let chime = self.sink.get_input(user.id.0).await;
+
+        if chime.is_err() {
+            error!("Could not retrieve chime from sink {:#?}", chime);
+            return
+        }
+
+        let chime = chime.unwrap();
+        {
+            self.queues
+                .lock()
+                .await
+                .entry(*guild_id.as_u64())
+                .or_insert(
+            Mutex::new(
+                        HashMap::new()
+                    )
+                ).lock()
+                .await
+                .entry(channel_id.0)
+                .or_insert(VecDeque::new())
+                .push_back(chime); 
+        } 
+            
+        let active_guilds = self.active_guilds.lock();
+        let guild_map = self.queues.lock().await;
+
+        let channel_map = guild_map[guild_id.as_u64()].lock();
+
+        drop(guild_map);
+
+        task::spawn(async {
+            if !active_guilds.await.insert(guild_id.0) {
+                return
+            }
+
+            channel_map.await;
+
+            if !active_guilds.await.remove(&guild_id.0) {
+                warn!("There is something spooky going on!");
+            }
+
+            info!("Exited task.");
+        });
     }
 
     async fn ready(&self, ctx: Context, ready: Ready) {
