@@ -1,9 +1,14 @@
 use crate::*;
 
-use serenity::async_trait;
-use serenity::http::CacheHttp;
-use serenity::prelude::*;
-use serenity::model::{
+use std::{
+    sync::Arc,
+    collections::{HashSet, VecDeque}
+};
+use serenity::{
+    async_trait, 
+    prelude::*, 
+    http::CacheHttp, 
+    model::{
     gateway::Ready,
     voice::VoiceState,
     application::{
@@ -14,59 +19,81 @@ use serenity::model::{
             application_command::CommandDataOptionValue
         }
     }
-};
+}};
 use songbird::input::Input;
-use std::collections::{HashSet, VecDeque};
 use log::{info, warn, error};
 
 pub struct Handler {
     sink : Box<dyn chimes::ChimeSink>,
-    queues : Mutex<
+
+    // send help
+    queues : Arc<Mutex<
         HashMap<u64, // guilds
-            Mutex<HashMap<u64, VecDeque<Input>>> // channels
+            Arc<Mutex<HashMap<u64, 
+                Arc<Mutex<VecDeque<Input>>>>>> // channels
             >
-        >,
-    active_guilds : Mutex<HashSet<u64>>
+        >>,
+
+    active_guilds : Arc<Mutex<HashSet<u64>>>
 }
 impl Handler {
     pub fn new(sink: Box<dyn chimes::ChimeSink>) -> Self {
         Self 
         { 
             sink, 
-            queues : Mutex::new(HashMap::new()), // always one queue for all guilds served
-            active_guilds : Mutex::new(HashSet::new())
+            queues : Arc::new(Mutex::new(HashMap::new())), // always one queue for all guilds served
+            active_guilds : Arc::new(Mutex::new(HashSet::new()))
         }
     }
 }
 #[async_trait]
 impl EventHandler for Handler {
-    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        if let Interaction::ApplicationCommand(command) = interaction {
-            info!("Received command interaction: {:#?}", command);
+    async fn ready(&self, ctx: Context, ready: Ready) {
+        use serenity::model::{
+            gateway::Activity,
+            user::OnlineStatus,
+            prelude::command::{Command, CommandOptionType},
+        };
 
-            let name: &str = command.data.name.as_str();
-            if name != "chime" {
-                warn!("Unknown command received! {:#?}", name);
-                return;
-            }
+        ctx.set_presence(Some(Activity::listening("/chime")), OnlineStatus::Online).await;
 
-            let user: u64 = command.user.id.0;
+        info!("{} is connected!", ready.user.name);
 
-            // playlist list
-            //
-            // playlist add name
-            // playlist remove name
-            // playlist play name
-            let base_option = command
-                .data
-                .options
-                .get(0);
-
-            if let None = base_option {
-                error!("Bad base option in command!");
-                return
-            }
-        }
+        Command::set_global_application_commands(&ctx.http, |create_app_commands| {
+            create_app_commands.create_application_command(|cmd| {
+                cmd.name("chime")
+                    .description("modify your chime")
+                    .description_localized("de", "Willkommenssound anpassen")
+                    .create_option(|opt| {
+                        opt.name("clear")
+                            .description("clear your chime")
+                            .description_localized("de", "Entfernt deinen Willkommenssound")
+                            .kind(CommandOptionType::SubCommand)
+                    })
+                    .create_option(|opt| {
+                        opt.name("set")
+                            .description("set your chime")
+                            .description_localized("de", "Setzt deinen Willkommenssound")
+                            .kind(CommandOptionType::SubCommand)
+                            .create_sub_option(|opt| {
+                                opt.kind(CommandOptionType::Attachment)
+                                    .name("file")
+                                    .required(true)
+                                    .description("attachment with file")
+                                    .description_localized("de", "Anhang mit Datei")
+                            })
+                            .create_sub_option(|opt| {
+                                opt.kind(CommandOptionType::String)
+                                    .name("url")
+                                    .required(true)
+                                    .description("link to file")
+                                    .description_localized("de", "Link zur Datei")
+                            })
+                    })
+            })
+        })
+        .await
+        .expect("could not set commands!");
     }
 
     async fn voice_state_update(&self, ctx: Context, old: Option<serenity::model::voice::VoiceState>, new: serenity::model::voice::VoiceState) {
@@ -120,31 +147,65 @@ impl EventHandler for Handler {
                 .await
                 .entry(*guild_id.as_u64())
                 .or_insert(
-            Mutex::new(
+            Arc::new(Mutex::new(
                         HashMap::new()
-                    )
+                    ))
                 ).lock()
                 .await
                 .entry(channel_id.0)
-                .or_insert(VecDeque::new())
+                .or_insert(Arc::new(Mutex::new(VecDeque::new())))
+                .lock()
+                .await
                 .push_back(chime); 
         } 
             
-        let active_guilds = self.active_guilds.lock();
-        let guild_map = self.queues.lock().await;
+        let active_guilds = self.active_guilds.clone();
+        let guild_map = self.queues.clone();
 
-        let channel_map = guild_map[guild_id.as_u64()].lock();
-
-        drop(guild_map);
-
-        task::spawn(async {
-            if !active_guilds.await.insert(guild_id.0) {
+        task::spawn(async move {
+            // check if other task is already operating within guild
+            if !active_guilds.lock().await.insert(guild_id.0) {
                 return
             }
 
-            channel_map.await;
+            if let Some (guild_arc) = guild_map.lock().await.get(&guild_id.0) {
+                
+                let guild_guard = guild_arc.lock().await;
+                let channels_to_play = guild_guard.keys();
 
-            if !active_guilds.await.remove(&guild_id.0) {
+                if channels_to_play.len() != 0 {
+
+                    let manager = songbird::get(&ctx).await;
+                    if manager.is_none() {
+                        error!("Could not get songbird!");
+                    }
+                    let manager = manager.unwrap().clone();
+
+                    for channel in channels_to_play {
+
+                        let chimes = guild_guard.get(channel);
+                        if chimes.is_none() {
+                            error!("Attempted to join in channel without chimes");
+                            continue;
+                        }
+
+                        let handler = manager.join(guild_id, *channel).await;
+                        if handler.1.is_err() {
+                            error!("Could not join channel! {:#?}", handler.1);
+                            continue;
+                        }
+                        
+                        let mut handler_play_lock = handler.0.lock().await;
+
+                        while let Some(chime) = chimes.unwrap().clone().lock().await.pop_front() {
+                            handler_play_lock.play_source(chime);
+                        }
+                    }
+                }                
+            }
+            
+            if !active_guilds.lock().await.remove(&guild_id.0) {
+                // guild has been removed by other task! this should not happen
                 warn!("There is something spooky going on!");
             }
 
@@ -152,51 +213,32 @@ impl EventHandler for Handler {
         });
     }
 
-    async fn ready(&self, ctx: Context, ready: Ready) {
-        use serenity::model::{
-            gateway::Activity,
-            user::OnlineStatus,
-            prelude::command::{Command, CommandOptionType},
-        };
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        if let Interaction::ApplicationCommand(command) = interaction {
+            info!("Received command interaction: {:#?}", command);
 
-        ctx.set_presence(Some(Activity::listening("/chime")), OnlineStatus::Online).await;
+            let name: &str = command.data.name.as_str();
+            if name != "chime" {
+                warn!("Unknown command received! {:#?}", name);
+                return;
+            }
 
-        info!("{} is connected!", ready.user.name);
+            let user: u64 = command.user.id.0;
 
-        Command::set_global_application_commands(&ctx.http, |create_app_commands| {
-            create_app_commands.create_application_command(|cmd| {
-                cmd.name("chime")
-                    .description("modify your chime")
-                    .description_localized("de", "Willkommenssound anpassen")
-                    .create_option(|opt| {
-                        opt.name("clear")
-                            .description("clear your chime")
-                            .description_localized("de", "Entfernt deinen Willkommenssound")
-                            .kind(CommandOptionType::SubCommand)
-                    })
-                    .create_option(|opt| {
-                        opt.name("set")
-                            .description("set your chime")
-                            .description_localized("de", "Setzt deinen Willkommenssound")
-                            .kind(CommandOptionType::SubCommand)
-                            .create_sub_option(|opt| {
-                                opt.kind(CommandOptionType::Attachment)
-                                    .name("file")
-                                    .required(true)
-                                    .description("attachment with file")
-                                    .description_localized("de", "Anhang mit Datei")
-                            })
-                            .create_sub_option(|opt| {
-                                opt.kind(CommandOptionType::String)
-                                    .name("url")
-                                    .required(true)
-                                    .description("link to file")
-                                    .description_localized("de", "Link zur Datei")
-                            })
-                    })
-            })
-        })
-        .await
-        .expect("could not set commands!");
+            // playlist list
+            //
+            // playlist add name
+            // playlist remove name
+            // playlist play name
+            let base_option = command
+                .data
+                .options
+                .get(0);
+
+            if let None = base_option {
+                error!("Bad base option in command!");
+                return
+            }
+        }
     }
 }

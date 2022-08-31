@@ -18,7 +18,7 @@ async fn main() {
         .expect("Could not deserialize settings!");
 
     let framework = StandardFramework::new();
-    let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
+    let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT | GatewayIntents::GUILD_VOICE_STATES;
 
     let mut userdata_dir = std::path::PathBuf::new();
     userdata_dir.push(settings["USERDATA_DIR"].as_str());
