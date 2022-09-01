@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use async_std::sync::Mutex;
+use tokio::sync::Mutex;
+use fs_extra::file::CopyOptions;
 use std::collections::HashMap;
 use songbird::input::*;
 use log::{warn, error};
@@ -16,20 +17,35 @@ pub enum ChimeSinkError {
 pub trait ChimeSink: Send + Sync {
     async fn has_data(&self, user_id: u64) -> bool; 
     async fn get_input(&self, user_id: u64) -> Result<Input, ChimeSinkError>;
-    async fn save_data(&self, user_id: u64, data: &[u8]) -> Result<(), ChimeSinkError>;
+    async fn save_data(&self, user_id: u64, file: std::path::PathBuf) -> Result<(), ChimeSinkError>;
     async fn clear_data(&self, user_id: u64);
 }
 
 pub struct FileChimeSink {
     dir : std::path::PathBuf,
-    chimes : Mutex<HashMap<u64, std::path::PathBuf>>,
-    volatile : bool
+    chimes : Mutex<HashMap<u64, std::path::PathBuf>>
 }
 impl FileChimeSink {
-    pub async fn new(dir : std::path::PathBuf, volatile : bool) -> Result<Self, ChimeSinkError> {
-        if !dir.is_dir() {
+    pub async fn new(mut dir : std::path::PathBuf) -> Result<Self, ChimeSinkError> {       
+
+        if dir.exists() && dir.is_file() {
             return Err(ChimeSinkError::DirError);
         }
+
+        if let Err(why) = std::fs::create_dir_all(&dir) {
+            error!("Could not ensure directory at {} : {}", dir.display(), why);
+            return Err(ChimeSinkError::DirError);
+        }
+
+        if dir.is_relative() {
+            match dir.canonicalize() {
+                Ok(canonical) => dir = canonical,
+                Err(why) => {
+                    error!("Could not canonicalize directory! {:#?}", why);
+                    return Err(ChimeSinkError::DirError);
+                }
+            }
+        }        
 
         let paths = std::fs::read_dir(&dir);
         if paths.is_err() {
@@ -69,22 +85,7 @@ impl FileChimeSink {
 
         drop(chimes_locked);
 
-        Ok(Self { dir, chimes, volatile })
-    }
-}
-impl Drop for FileChimeSink {
-    fn drop(&mut self) {
-        if !self.volatile { return }
-
-        if let Some(map) = self.chimes.try_lock() {
-            for (_, v) in map.iter() {
-                if let Err(why) = std::fs::remove_file(v) {
-                    error!("Could not remove file {:#?}", why);
-                }
-            }
-        } else {
-            error!("Could not acquire lock while dropping FileChimeSink");
-        }
+        Ok(Self { dir, chimes })
     }
 }
 #[async_trait]
@@ -109,8 +110,18 @@ impl ChimeSink for FileChimeSink {
         }
     }
 
-    async fn save_data(&self, user_id: u64, data: &[u8]) -> Result<(), ChimeSinkError> {
-        todo!()
+    async fn save_data(&self, user_id: u64, file: std::path::PathBuf) -> Result<(), ChimeSinkError> {
+
+        let mut new_path = self.dir.clone();
+        new_path.push(format!("{user_id}"));
+
+        match fs_extra::file::move_file(&file, &new_path, &CopyOptions::default()) {
+            Ok(_) => Ok(()),
+            Err(why) => {
+                error!("Could not move file {} to {}: {}", file.display(), new_path.display(), why);
+                Err(ChimeSinkError::SaveError)
+            }
+        }
     }
 
     async fn clear_data(&self, user_id: u64) {

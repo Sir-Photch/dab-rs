@@ -7,18 +7,20 @@ edition = "2021"
 
 [dependencies.serenity]
 version = "*"
-features = ["http", "builder", "client", "gateway", "cache", "temp_cache"]
+features = ["http", "builder", "client", "gateway", "cache", "temp_cache", "voice", "standard_framework"]
 
 [dependencies.tokio]
 version = "*"
-features = ["rt", "rt-multi-thread", "macros"]
+features = ["rt", "rt-multi-thread", "macros", "signal", "time"]
 
 [dependencies]
 songbird = "*"
-mysql_async = "*"
 url = "*"
 config = "*"
 log = "*"
 env_logger = "*"
 async-trait = "*"
 async-std = "*"
+ffprobe = "*"
+fs_extra = "*"
+bus = "*"

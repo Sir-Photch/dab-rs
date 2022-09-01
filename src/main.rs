@@ -4,7 +4,11 @@ mod handler;
 use config::Config;
 use serenity::framework::standard::StandardFramework;
 use serenity::prelude::*;
+use songbird::SerenityInit;
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use log::{info, error};
 
 #[tokio::main]
 async fn main() {
@@ -24,17 +28,22 @@ async fn main() {
     userdata_dir.push(settings["USERDATA_DIR"].as_str());
 
     let sink = chimes::FileChimeSink::new(
-        userdata_dir, 
-        settings["DEBUG"].as_str().parse::<bool>().expect("Bad config")
+        userdata_dir
     ).await.expect("Could not initialize sink!");
 
+    let sink = Arc::new(sink);
+
     let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
-        .event_handler(handler::Handler::new(Box::new(sink)))
+        .event_handler(handler::Handler::new(sink, settings["BUS_SIZE"].as_str().parse::<usize>().expect("Could not get bus-size from config")))
         .framework(framework)
+        .register_songbird()
         .await
         .expect("Error creating client");
 
-    if let Err(why) = client.start().await {
-        println!("An error occurred: {:?}", why);
-    }
+    tokio::spawn(async move {
+        let _ = client.start().await.map_err(|why| error!("Client ended: {:#?}", why));
+    });
+
+    let _ = tokio::signal::ctrl_c().await;
+    info!("Received interrupt. Exiting...");
 }

@@ -2,52 +2,115 @@ use crate::*;
 
 use std::{
     sync::Arc,
-    collections::{HashSet, VecDeque}
+    fs::File,
+    env::temp_dir, 
+    os::unix::prelude::FileExt
 };
+use log::{info, warn, error};
 use serenity::{
     async_trait, 
-    prelude::*, 
-    http::CacheHttp, 
+    prelude::*,
     model::{
     gateway::Ready,
-    voice::VoiceState,
     application::{
-        command::{Command, CommandOptionType},
         interaction::{            
             Interaction,
-            InteractionResponseType,
+            application_command::CommandDataOption,
             application_command::CommandDataOptionValue
         }
     }
 }};
-use songbird::input::Input;
-use log::{info, warn, error};
+use ffprobe::ffprobe;
+use tokio::{
+    task::{self, JoinHandle},
+    sync::Mutex
+};
+
+#[derive(Clone)]
+struct BusChimePayload {
+    guild_id : u64,
+    channel_id : u64,
+    user_id : u64,
+    ctx : Context
+}
 
 pub struct Handler {
-    sink : Box<dyn chimes::ChimeSink>,
 
-    // send help
-    queues : Arc<Mutex<
-        HashMap<u64, // guilds
-            Arc<Mutex<HashMap<u64, 
-                Arc<Mutex<VecDeque<Input>>>>>> // channels
-            >
-        >>,
+    pub file_size_limit_bytes : i64,
+    sink : Arc<dyn chimes::ChimeSink>,
 
-    active_guilds : Arc<Mutex<HashSet<u64>>>
+    watchers : Mutex<HashMap<u64, JoinHandle<()>>>,
+
+    bus : Mutex<bus::Bus<BusChimePayload>>
 }
 impl Handler {
-    pub fn new(sink: Box<dyn chimes::ChimeSink>) -> Self {
+    pub fn new(sink: Arc<dyn chimes::ChimeSink>, bus_size : usize) -> Self {
         Self 
-        { 
-            sink, 
-            queues : Arc::new(Mutex::new(HashMap::new())), // always one queue for all guilds served
-            active_guilds : Arc::new(Mutex::new(HashSet::new()))
+        {
+            file_size_limit_bytes : -1,
+            sink: Arc::clone(&sink),
+            watchers : Mutex::new(HashMap::new()),
+            bus : Mutex::new(bus::Bus::new(bus_size))
         }
+    }
+
+    async fn spawn_guild_watcher(&self, guild_id : u64) -> JoinHandle<()> {
+        let mut task_rx = self.bus.lock().await.add_rx();
+        let sink_arc = Arc::clone(&self.sink);
+        task::spawn(async move {
+            while let Ok(msg) = task_rx.recv() {
+
+                if msg.guild_id != guild_id {                
+                    continue;
+                }
+
+                let manager = songbird::get(&msg.ctx).await;
+                if manager.is_none() {
+                    error!("Could not get songbird!");
+                    continue;
+                }
+                let manager = Arc::clone(&manager.unwrap());
+                let (call, result) = manager.join(msg.guild_id, msg.channel_id).await;
+                if let Err(why) = result {
+                    error!("Could not join guild: {}", why);
+                    continue
+                }
+
+                if let Ok(chime) = sink_arc.get_input(msg.user_id).await {
+
+                    let player = call.lock().await.play_only_source(chime);
+
+                    // block until track is finished
+                    if let Some(duration) = player.metadata().duration {
+                        tokio::time::sleep(duration).await;
+                    }
+                }
+
+                let _ = manager.leave(guild_id).await.map_err(|err| error!("Could not leave guild {}", err));
+            }
+
+            info!("Ended task for guild {}", guild_id);
+        })
     }
 }
 #[async_trait]
-impl EventHandler for Handler {
+impl EventHandler for Handler{
+    async fn guild_create(&self, _ctx: Context, guild: serenity::model::guild::Guild, _is_new: bool) {
+
+        let guild_id = guild.id.0;
+
+        let mut watchers = self.watchers.lock().await;
+
+        if watchers.contains_key(&guild_id) {
+            return
+        }
+
+        watchers.insert(
+            guild_id, 
+            self.spawn_guild_watcher(guild_id).await
+        ); 
+    }
+
     async fn ready(&self, ctx: Context, ready: Ready) {
         use serenity::model::{
             gateway::Activity,
@@ -61,7 +124,7 @@ impl EventHandler for Handler {
 
         Command::set_global_application_commands(&ctx.http, |create_app_commands| {
             create_app_commands.create_application_command(|cmd| {
-                cmd.name("chime")
+                cmd.name("dab")
                     .description("modify your chime")
                     .description_localized("de", "Willkommenssound anpassen")
                     .create_option(|opt| {
@@ -82,13 +145,13 @@ impl EventHandler for Handler {
                                     .description("attachment with file")
                                     .description_localized("de", "Anhang mit Datei")
                             })
-                            .create_sub_option(|opt| {
+                            /*.create_sub_option(|opt| {
                                 opt.kind(CommandOptionType::String)
                                     .name("url")
                                     .required(true)
                                     .description("link to file")
                                     .description_localized("de", "Link zur Datei")
-                            })
+                            })*/
                     })
             })
         })
@@ -97,7 +160,6 @@ impl EventHandler for Handler {
     }
 
     async fn voice_state_update(&self, ctx: Context, old: Option<serenity::model::voice::VoiceState>, new: serenity::model::voice::VoiceState) {
-        use tokio::task;
 
         let user = new.user_id.to_user(&ctx.http).await;
         if user.is_err() {
@@ -133,111 +195,107 @@ impl EventHandler for Handler {
         }
         let guild_id = new.guild_id.unwrap();
 
-        let chime = self.sink.get_input(user.id.0).await;
-
-        if chime.is_err() {
-            error!("Could not retrieve chime from sink {:#?}", chime);
-            return
-        }
-
-        let chime = chime.unwrap();
-        {
-            self.queues
-                .lock()
-                .await
-                .entry(*guild_id.as_u64())
-                .or_insert(
-            Arc::new(Mutex::new(
-                        HashMap::new()
-                    ))
-                ).lock()
-                .await
-                .entry(channel_id.0)
-                .or_insert(Arc::new(Mutex::new(VecDeque::new())))
-                .lock()
-                .await
-                .push_back(chime); 
-        } 
-            
-        let active_guilds = self.active_guilds.clone();
-        let guild_map = self.queues.clone();
-
-        task::spawn(async move {
-            // check if other task is already operating within guild
-            if !active_guilds.lock().await.insert(guild_id.0) {
-                return
+        self.bus.lock().await.broadcast(
+           BusChimePayload {
+                guild_id : guild_id.0, 
+                channel_id : channel_id.0, 
+                user_id : user.id.0,
+                ctx
             }
-
-            if let Some (guild_arc) = guild_map.lock().await.get(&guild_id.0) {
-                
-                let guild_guard = guild_arc.lock().await;
-                let channels_to_play = guild_guard.keys();
-
-                if channels_to_play.len() != 0 {
-
-                    let manager = songbird::get(&ctx).await;
-                    if manager.is_none() {
-                        error!("Could not get songbird!");
-                    }
-                    let manager = manager.unwrap().clone();
-
-                    for channel in channels_to_play {
-
-                        let chimes = guild_guard.get(channel);
-                        if chimes.is_none() {
-                            error!("Attempted to join in channel without chimes");
-                            continue;
-                        }
-
-                        let handler = manager.join(guild_id, *channel).await;
-                        if handler.1.is_err() {
-                            error!("Could not join channel! {:#?}", handler.1);
-                            continue;
-                        }
-                        
-                        let mut handler_play_lock = handler.0.lock().await;
-
-                        while let Some(chime) = chimes.unwrap().clone().lock().await.pop_front() {
-                            handler_play_lock.play_source(chime);
-                        }
-                    }
-                }                
-            }
-            
-            if !active_guilds.lock().await.remove(&guild_id.0) {
-                // guild has been removed by other task! this should not happen
-                warn!("There is something spooky going on!");
-            }
-
-            info!("Exited task.");
-        });
+        )
     }
 
-    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+    async fn interaction_create(&self, _ctx: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(command) = interaction {
             info!("Received command interaction: {:#?}", command);
 
-            let name: &str = command.data.name.as_str();
-            if name != "chime" {
+            let name = command.data.name.as_str();
+            if name != "dab" { // todo make this dynamic based on config
                 warn!("Unknown command received! {:#?}", name);
                 return;
             }
 
-            let user: u64 = command.user.id.0;
+            let user = command.user.id.0;
 
-            // playlist list
-            //
-            // playlist add name
-            // playlist remove name
-            // playlist play name
+            // chime clear
+            // chime set url/attachment
             let base_option = command
                 .data
                 .options
                 .get(0);
 
-            if let None = base_option {
+            if base_option.is_none() {
                 error!("Bad base option in command!");
                 return
+            }
+
+            let base_option : &CommandDataOption = base_option.unwrap();
+
+            match base_option.name.as_str() {
+                "clear" => self.sink.clear_data(user).await,
+                "set" => {
+                    if base_option.options.len() != 1 {
+                        warn!("Malformed command received {:#?}", base_option);
+                        return
+                    }
+
+                    match &base_option.options.get(0).unwrap().resolved {
+                        Some(CommandDataOptionValue::Attachment(attachment)) => {
+                            if self.file_size_limit_bytes != -1 && 
+                               attachment.size as i64 > self.file_size_limit_bytes 
+                            {
+                                info!("User {} supplied large file.", command.user.name);
+                                return
+                            }
+
+                            let data = attachment.download().await;
+                            if data.is_err() {
+                                warn!("Download failed! {:#?}", data);
+                                return
+                            }
+                            let data = data.unwrap();
+                            let mut temp_path = temp_dir();
+                            temp_path.push(attachment.filename.as_str());
+
+                            let temp_file = File::create(&temp_path);
+                            if temp_file.is_err() {
+                                error!("Could not create temporary file {:#?}", temp_file);
+                                return;
+                            }
+                            let temp_file = temp_file.unwrap();
+                            if let Err(why) = temp_file.write_all_at(&data, 0) {
+                                error!("Could not write data to file: {:#?}", why);
+                                return
+                            }
+
+                            match ffprobe(&temp_path) {
+                                Ok(info) => {
+                                    let duration = info.format.duration;
+                                    if duration.is_none() {
+                                        warn!("Could not determine duration of file: {}", temp_path.display());
+                                    } else {
+                                        info!("User {} supplied file with length {}", command.user.name, duration.unwrap());
+                                    }
+                                },
+                                Err(why) => {
+                                    error!("FFProbe on data from {} failed: {:#?}", command.user.name, why);
+                                    return
+                                }
+                            }
+
+                            if let Err(why) = self.sink.save_data(command.user.id.0, temp_path).await {
+                                error!("Could not save chime to sink! {:#?}", why);
+                                return
+                            }
+                        },
+                        Some(CommandDataOptionValue::String(_url_str)) => {
+                            todo!();
+                        },
+                        _ => warn!("Malformed command received {:#?}", base_option),
+                    }
+
+                },
+                val => warn!("Unknown option received! {}", val)
             }
         }
     }
