@@ -218,6 +218,8 @@ impl EventHandler for Handler {
 
         info!("{} is connected!", ready.user.name);
 
+        // TODO cleanup unneeded descriptions
+
         Command::set_global_application_commands(&ctx.http, |create_app_commands| {
             create_app_commands.create_application_command(|cmd| {
                 cmd.name("dab")
@@ -235,18 +237,30 @@ impl EventHandler for Handler {
                             .description_localized("de", "Setzt deinen Willkommenssound")
                             .kind(CommandOptionType::SubCommandGroup)
                             .create_sub_option(|opt| {
-                                opt.kind(CommandOptionType::Attachment)
+                                opt.kind(CommandOptionType::SubCommand)
                                     .name("file")
-                                    .required(true)
                                     .description("attachment with file")
                                     .description_localized("de", "Anhang mit Datei")
+                                    .create_sub_option(|opt|{
+                                        opt.name("attachment")
+                                           .description(".mp3 is preferred")
+                                           .description_localized("de", "MP3 wird empfohlen")
+                                           .kind(CommandOptionType::Attachment)
+                                           .required(true)
+                                    })
                             })
                             .create_sub_option(|opt| {
-                                opt.kind(CommandOptionType::String)
+                                opt.kind(CommandOptionType::SubCommand)
                                     .name("url")
-                                    .required(true)
                                     .description("link to file")
                                     .description_localized("de", "Link zur Datei")
+                                    .create_sub_option(|opt| {
+                                        opt.name("link")
+                                           .description("link to download audio-file. .mp3 is preferred.")
+                                           .description_localized("de", "Link zum download der Audiodatei. MP3 wird empfohlen")
+                                           .kind(CommandOptionType::String)
+                                           .required(true)
+                                    })  
                             })
                     })
             })
@@ -367,14 +381,20 @@ impl EventHandler for Handler {
 
             /* _BIG_ match */
             match base_option.name.as_str() {
-                "clear" => self.sink.clear_data(user).await,
+                "clear" => {
+                    self.sink.clear_data(user).await;
+                    respond(&command, ctx, true, None).await;
+                },
                 "set" => {
 
-                    if base_option.options.len() != 1 {
+                    if base_option.options.len() != 1 || 
+                       base_option.options.get(0).unwrap().options.len() != 1 
+                    {
                         warn!("Malformed command received {:#?}", base_option);
+                        return;
                     }
 
-                    match &base_option.options.get(0).unwrap().resolved {
+                    match &base_option.options.get(0).unwrap().options.get(0).unwrap().resolved {
                         Some(CommandDataOptionValue::Attachment(attachment)) => {
                             if self.file_size_limit_bytes != -1 && 
                                attachment.size as i64 > self.file_size_limit_bytes 
