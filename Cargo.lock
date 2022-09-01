@@ -510,6 +510,7 @@ dependencies = [
  "songbird",
  "tokio",
  "url",
+ "uuid",
 ]
 
 [[package]]

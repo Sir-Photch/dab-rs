@@ -42,7 +42,8 @@ async fn main() {
                 sink, 
                 settings["BUS_SIZE"].as_str()
                                             .parse::<usize>()
-                                            .expect("Could not get bus-size from config")
+                                            .expect("Could not get bus-size from config"),
+                std::time::Duration::from_secs(3)
             )
         )
         .framework(framework)

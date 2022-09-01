@@ -4,7 +4,9 @@ use std::{
     sync::Arc,
     fs::File,
     env::temp_dir, 
-    os::unix::prelude::FileExt
+    os::unix::prelude::FileExt, 
+    time::Duration, 
+    fmt::Display
 };
 use tokio::{
     task::{self, JoinHandle},
@@ -17,15 +19,32 @@ use serenity::{
     model::{
     gateway::Ready,
     application::{
-        interaction::{            
+        interaction::{
             Interaction,
+            InteractionResponseType,    
             application_command::CommandDataOption,
-            application_command::CommandDataOptionValue
+            application_command::CommandDataOptionValue,
+            application_command::ApplicationCommandInteraction
         }
     }
 }};
 use ffprobe::ffprobe;
 
+#[derive(Debug)]
+enum AttachmentError {
+    Duration,
+    Unreadable,
+    Tempfile
+}
+impl Display for AttachmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AttachmentError::Duration => write!(f, "Duration is too long"),
+            AttachmentError::Unreadable => write!(f, "Cant read the chime"),
+            AttachmentError::Tempfile => write!(f, "Oops! Internal error"),
+        }
+    }
+}
 
 #[derive(Clone)]
 struct BusChimePayload {
@@ -38,6 +57,8 @@ struct BusChimePayload {
 pub struct Handler {
 
     pub file_size_limit_bytes : i64,
+    pub file_duration_max : Duration,
+
     sink : Arc<dyn chimes::ChimeSink>,
 
     watchers : Mutex<HashMap<u64, JoinHandle<()>>>,
@@ -45,17 +66,25 @@ pub struct Handler {
     bus : Mutex<bus::Bus<BusChimePayload>>
 }
 impl Handler {
-    pub fn new(sink: Arc<dyn chimes::ChimeSink>, bus_size : usize) -> Self {
+    pub fn new(
+        sink: Arc<dyn chimes::ChimeSink>, 
+        bus_size : usize, 
+        file_duration_max : Duration
+    ) -> Self {
         Self 
         {
             file_size_limit_bytes : -1,
+            file_duration_max,
             sink: Arc::clone(&sink),
             watchers : Mutex::new(HashMap::new()),
-            bus : Mutex::new(bus::Bus::new(bus_size))
+            bus : Mutex::new(bus::Bus::new(bus_size))            
         }
     }
 
-    async fn spawn_guild_watcher(&self, guild_id : u64) -> JoinHandle<()> {
+    async fn spawn_guild_watcher(
+        &self, 
+        guild_id : u64
+    ) -> JoinHandle<()> {
         let mut task_rx = self.bus.lock().await.add_rx();
         let sink_arc = Arc::clone(&self.sink);
         task::spawn(async move {
@@ -95,13 +124,70 @@ impl Handler {
         })
     }
 
-    async fn check_attachment(&self, file : &mut File) -> bool {
-        false
+    async fn process_chime_data(
+        &self, 
+        data : &[u8], 
+        user_id : u64, 
+        filename : Option<&str>
+    ) -> Result<(), AttachmentError> {
+
+        let mut temp_path = temp_dir();
+        match filename {
+            Some(name) => temp_path.push(name),
+            None => temp_path.push(uuid::Uuid::new_v4().to_string())
+        };
+
+        let temp_file = File::create(&temp_path);
+        if temp_file.is_err() {
+            error!("Could not create temporary file {:#?}", temp_file);
+            return Err(AttachmentError::Tempfile);
+        }
+        let temp_file = temp_file.unwrap();
+        if let Err(why) = temp_file.write_all_at(&data, 0) {
+            error!("Could not write data to file: {:#?}", why);
+            return Err(AttachmentError::Tempfile);
+        }
+
+        match ffprobe(&temp_path) {
+            Ok(info) => {
+                let duration = info.format.duration; // seconds
+                if duration.is_none() { 
+                    return Err(AttachmentError::Unreadable); 
+                }
+
+                let parsed = duration.unwrap().parse::<f64>();
+                if parsed.is_err() {
+                    return Err(AttachmentError::Unreadable);
+                }
+
+                let duration = Duration::from_secs_f64(parsed.unwrap());
+                if duration > self.file_duration_max {
+                    return Err(AttachmentError::Duration);
+                }
+            },
+            Err(why) => {
+                error!("FFProbe on data failed: {:#?}", why);
+                return Err(AttachmentError::Unreadable);
+            }
+        };
+
+        match self.sink.save_data(user_id, temp_path).await {
+            Ok(_) => Ok(()),
+            Err(why) => {
+                error!("Could not save chime to sink: {:?}", why);
+                Err(AttachmentError::Tempfile)
+            }
+        }
     }
 }
 #[async_trait]
 impl EventHandler for Handler {
-    async fn guild_create(&self, _ctx: Context, guild: serenity::model::guild::Guild, _is_new: bool) {
+    async fn guild_create(
+        &self, 
+        _ctx: Context, 
+        guild: serenity::model::guild::Guild, 
+        _is_new: bool
+    ) {
 
         let guild_id = guild.id.0;
 
@@ -117,7 +203,11 @@ impl EventHandler for Handler {
         ); 
     }
 
-    async fn ready(&self, ctx: Context, ready: Ready) {
+    async fn ready(
+        &self, 
+        ctx: Context, 
+        ready: Ready
+    ) {
         use serenity::model::{
             gateway::Activity,
             user::OnlineStatus,
@@ -165,7 +255,12 @@ impl EventHandler for Handler {
         .expect("could not set commands!");
     }
 
-    async fn voice_state_update(&self, ctx: Context, old: Option<serenity::model::voice::VoiceState>, new: serenity::model::voice::VoiceState) {
+    async fn voice_state_update(
+        &self, 
+        ctx: Context, 
+        old: Option<serenity::model::voice::VoiceState>, 
+        new: serenity::model::voice::VoiceState
+    ) {
 
         let user = new.user_id.to_user(&ctx.http).await;
         if user.is_err() {
@@ -185,7 +280,7 @@ impl EventHandler for Handler {
 
         let channel_id = new.channel_id.unwrap();
 
-        if let Some(prev) = old.and_then(|state| state.channel_id) {
+        if let Some(prev) = old.as_ref().and_then(|state| state.channel_id) {
             if prev == channel_id {
                 return
             }
@@ -201,6 +296,12 @@ impl EventHandler for Handler {
         }
         let guild_id = new.guild_id.unwrap();
 
+        if let Some(old_guild) = old.and_then(|v| v.guild_id) {
+            if old_guild == guild_id {
+                return
+            }
+        }
+
         self.bus.lock().await.broadcast(
            BusChimePayload {
                 guild_id : guild_id.0, 
@@ -211,8 +312,35 @@ impl EventHandler for Handler {
         )
     }
 
-    async fn interaction_create(&self, _ctx: Context, interaction: Interaction) {
+    async fn interaction_create(
+        &self, 
+        ctx: Context, 
+        interaction: Interaction
+    ) {
         if let Interaction::ApplicationCommand(command) = interaction {
+
+            async fn respond(
+                command : &ApplicationCommandInteraction,
+                ctx : Context,
+                success : bool,
+                info : Option<&str>
+            ) {
+                if let Err(why) = command.create_interaction_response(&ctx.http, |response| {
+                    response.kind(InteractionResponseType::ChannelMessageWithSource)
+                            .interaction_response_data(|data| {
+                                data.content(
+                                    match info {
+                                        Some(text) => text,
+                                        None => if success { "success!" } else { "that did not work..." }
+                                    }
+                                )
+                            })
+                }).await {
+                    error!("Error responding to interaction: {:?}", why);
+                    return;
+                }
+            }
+
             info!("Received command interaction: {:#?}", command);
 
             let name = command.data.name.as_str();
@@ -237,12 +365,13 @@ impl EventHandler for Handler {
 
             let base_option : &CommandDataOption = base_option.unwrap();
 
+            /* _BIG_ match */
             match base_option.name.as_str() {
                 "clear" => self.sink.clear_data(user).await,
                 "set" => {
+
                     if base_option.options.len() != 1 {
                         warn!("Malformed command received {:#?}", base_option);
-                        return
                     }
 
                     match &base_option.options.get(0).unwrap().resolved {
@@ -251,84 +380,88 @@ impl EventHandler for Handler {
                                attachment.size as i64 > self.file_size_limit_bytes 
                             {
                                 info!("User {} supplied large file.", command.user.name);
-                                return
+                                respond(&command, ctx, false, Some("Whoops, too big!")).await;
+                                return;
                             }
 
                             let data = attachment.download().await;
                             if data.is_err() {
                                 warn!("Download failed! {:#?}", data);
-                                return
-                            }
-                            let data = data.unwrap();
-                            let mut temp_path = temp_dir();
-                            temp_path.push(attachment.filename.as_str());
-
-                            let temp_file = File::create(&temp_path);
-                            if temp_file.is_err() {
-                                error!("Could not create temporary file {:#?}", temp_file);
+                                respond(&command, ctx, false, Some("Download failed!")).await;
                                 return;
                             }
-                            let temp_file = temp_file.unwrap();
-                            if let Err(why) = temp_file.write_all_at(&data, 0) {
-                                error!("Could not write data to file: {:#?}", why);
-                                return
+                            let data = data.unwrap();
+
+                            if let Err(_why) = self.process_chime_data(
+                                &data, 
+                                command.user.id.0, 
+                                Some(&attachment.filename)
+                            ).await {
+                                respond(&command, ctx, false, None).await;
+                                return;
                             }
 
-                            match ffprobe(&temp_path) {
-                                Ok(info) => {
-                                    let duration = info.format.duration; // seconds
-                                    if duration.is_none() {
-                                        warn!("Could not determine duration of file: {}", temp_path.display());
-                                    } else {
-                                        info!("User {} supplied file with length {}", command.user.name, duration.unwrap());
-                                    }
-                                },
-                                Err(why) => {
-                                    error!("FFProbe on data from {} failed: {:#?}", command.user.name, why);
-                                    return
-                                }
-                            }
-
-                            if let Err(why) = self.sink.save_data(command.user.id.0, temp_path).await {
-                                error!("Could not save chime to sink! {:#?}", why);
-                                return
-                            }
-                        },
+                            respond(&command, ctx, true, None).await;
+                        }, // attachment
                         Some(CommandDataOptionValue::String(url_str)) => {
+
+                            let huh_weird_link = || respond(&command, ctx.clone(), false, Some("Huh, weird link!"));
                             
                             let url = url::Url::parse(url_str);
                             if url.is_err() {
                                 warn!("User {} supplied bad url: {}", command.user.name, url_str);
-                                return
+                                huh_weird_link().await;
+                                return;
                             }
                             let url = url.unwrap();
 
-                            let response = reqwest::get(url).await;
+                            let response = reqwest::get(url.clone()).await;
                             if response.is_err() {
                                 error!("Could not request {} : {:?}", url_str, response);
-                                return
+                                huh_weird_link().await;
+                                return;
                             }
                             let response = response.unwrap();
                             let size = response.content_length();
                             if size.is_none() {
                                 warn!("Bad header, no information about content-length");
-                                return
+                                huh_weird_link().await;
+                                return;
                             }                            
                             if self.file_size_limit_bytes != -1 && 
                                 size.unwrap() as i64 > self.file_size_limit_bytes 
                             {
                                 info!("User {} supplied large file.", command.user.name);
-                                return
+                                respond(&command, ctx, false, Some("Whoops, too big!")).await;
+                                return;
                             }
 
+                            let download = response.text().await;
+                            if download.is_err() {
+                                let err = download.err().unwrap();
+                                error!("Could not download from {} : {}", url, err);
+                                respond(&command, ctx, false, Some(format!("{}", err).as_str())).await;
+                                return;
+                            }
+                            let data = download.unwrap();
 
-                        },
-                        _ => warn!("Malformed command received {:#?}", base_option),
-                    }
+                            if let Err(why) = self.process_chime_data(
+                                &data.as_bytes(),
+                                command.user.id.0,
+                                None
+                            ).await {
+                                respond(&command, ctx, false, Some(format!("{}", why).as_str())).await;
+                                return;
+                            }
 
-                },
+                            respond(&command, ctx, true, None).await;
+                        },// url
+                        _ => warn!("Malformed command received {:#?}", base_option)
+
+                    }; // match attachment, url
+                }, // "set"
                 val => warn!("Unknown option received! {}", val)
-            }
+            }; // match name
         }
     }
 }
