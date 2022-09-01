@@ -6,6 +6,10 @@ use std::{
     env::temp_dir, 
     os::unix::prelude::FileExt
 };
+use tokio::{
+    task::{self, JoinHandle},
+    sync::Mutex
+};
 use log::{info, warn, error};
 use serenity::{
     async_trait, 
@@ -21,10 +25,7 @@ use serenity::{
     }
 }};
 use ffprobe::ffprobe;
-use tokio::{
-    task::{self, JoinHandle},
-    sync::Mutex
-};
+
 
 #[derive(Clone)]
 struct BusChimePayload {
@@ -86,15 +87,20 @@ impl Handler {
                     }
                 }
 
+                // will disconnect after every playback FIXME
                 let _ = manager.leave(guild_id).await.map_err(|err| error!("Could not leave guild {}", err));
             }
 
             info!("Ended task for guild {}", guild_id);
         })
     }
+
+    async fn check_attachment(&self, file : &mut File) -> bool {
+        false
+    }
 }
 #[async_trait]
-impl EventHandler for Handler{
+impl EventHandler for Handler {
     async fn guild_create(&self, _ctx: Context, guild: serenity::model::guild::Guild, _is_new: bool) {
 
         let guild_id = guild.id.0;
@@ -137,7 +143,7 @@ impl EventHandler for Handler{
                         opt.name("set")
                             .description("set your chime")
                             .description_localized("de", "Setzt deinen Willkommenssound")
-                            .kind(CommandOptionType::SubCommand)
+                            .kind(CommandOptionType::SubCommandGroup)
                             .create_sub_option(|opt| {
                                 opt.kind(CommandOptionType::Attachment)
                                     .name("file")
@@ -145,13 +151,13 @@ impl EventHandler for Handler{
                                     .description("attachment with file")
                                     .description_localized("de", "Anhang mit Datei")
                             })
-                            /*.create_sub_option(|opt| {
+                            .create_sub_option(|opt| {
                                 opt.kind(CommandOptionType::String)
                                     .name("url")
                                     .required(true)
                                     .description("link to file")
                                     .description_localized("de", "Link zur Datei")
-                            })*/
+                            })
                     })
             })
         })
@@ -270,7 +276,7 @@ impl EventHandler for Handler{
 
                             match ffprobe(&temp_path) {
                                 Ok(info) => {
-                                    let duration = info.format.duration;
+                                    let duration = info.format.duration; // seconds
                                     if duration.is_none() {
                                         warn!("Could not determine duration of file: {}", temp_path.display());
                                     } else {
@@ -288,8 +294,34 @@ impl EventHandler for Handler{
                                 return
                             }
                         },
-                        Some(CommandDataOptionValue::String(_url_str)) => {
-                            todo!();
+                        Some(CommandDataOptionValue::String(url_str)) => {
+                            
+                            let url = url::Url::parse(url_str);
+                            if url.is_err() {
+                                warn!("User {} supplied bad url: {}", command.user.name, url_str);
+                                return
+                            }
+                            let url = url.unwrap();
+
+                            let response = reqwest::get(url).await;
+                            if response.is_err() {
+                                error!("Could not request {} : {:?}", url_str, response);
+                                return
+                            }
+                            let response = response.unwrap();
+                            let size = response.content_length();
+                            if size.is_none() {
+                                warn!("Bad header, no information about content-length");
+                                return
+                            }                            
+                            if self.file_size_limit_bytes != -1 && 
+                                size.unwrap() as i64 > self.file_size_limit_bytes 
+                            {
+                                info!("User {} supplied large file.", command.user.name);
+                                return
+                            }
+
+
                         },
                         _ => warn!("Malformed command received {:#?}", base_option),
                     }

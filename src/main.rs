@@ -1,14 +1,17 @@
 mod chimes;
 mod handler;
 
-use config::Config;
-use serenity::framework::standard::StandardFramework;
-use serenity::prelude::*;
-use songbird::SerenityInit;
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use std::{
+    collections::HashMap,
+    sync::Arc
+};
 use log::{info, error};
+use config::Config;
+use serenity::{
+    prelude::*,
+    framework::standard::StandardFramework
+};
+use songbird::SerenityInit;
 
 #[tokio::main]
 async fn main() {
@@ -34,7 +37,14 @@ async fn main() {
     let sink = Arc::new(sink);
 
     let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
-        .event_handler(handler::Handler::new(sink, settings["BUS_SIZE"].as_str().parse::<usize>().expect("Could not get bus-size from config")))
+        .event_handler(
+            handler::Handler::new(
+                sink, 
+                settings["BUS_SIZE"].as_str()
+                                            .parse::<usize>()
+                                            .expect("Could not get bus-size from config")
+            )
+        )
         .framework(framework)
         .register_songbird()
         .await
