@@ -127,6 +127,10 @@ impl ChimeSink for FileChimeSink {
         let mut new_path = self.dir.clone();
         new_path.push(format!("{user_id}"));
 
+        if self.has_data(user_id).await {
+            self.clear_data(user_id).await;
+        }
+
         match fs_extra::file::move_file(&file, &new_path, &CopyOptions::default()) {
             Ok(_) => {
                 self.chimes.lock().await.insert(user_id, new_path);

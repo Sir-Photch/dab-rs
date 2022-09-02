@@ -406,7 +406,7 @@ impl EventHandler for Handler {
                                 data.content(
                                     match info {
                                         Some(text) => text,
-                                        None => if success { "success!" } else { "that did not work..." }
+                                        None => if success { "Success!" } else { "That did not work..." }
                                     }
                                 ).ephemeral(true)
                             })
