@@ -43,7 +43,8 @@ async fn main() {
                 settings["BUS_SIZE"].as_str()
                                             .parse::<usize>()
                                             .expect("Could not get bus-size from config"),
-                std::time::Duration::from_secs(3)
+                std::time::Duration::from_secs(3),
+                settings["COMMAND_ROOT"].clone()
             )
         )
         .framework(framework)

@@ -59,6 +59,8 @@ pub struct Handler {
     pub file_size_limit_bytes : i64,
     pub file_duration_max : Duration,
 
+    command_root : String,
+
     sink : Arc<dyn chimes::ChimeSink>,
 
     watchers : Mutex<HashMap<u64, JoinHandle<()>>>,
@@ -69,12 +71,14 @@ impl Handler {
     pub fn new(
         sink: Arc<dyn chimes::ChimeSink>, 
         bus_size : usize, 
-        file_duration_max : Duration
+        file_duration_max : Duration,
+        command_root : String
     ) -> Self {
         Self 
         {
             file_size_limit_bytes : -1,
             file_duration_max,
+            command_root,
             sink: Arc::clone(&sink),
             watchers : Mutex::new(HashMap::new()),
             bus : Mutex::new(bus::Bus::new(bus_size))            
@@ -214,50 +218,47 @@ impl EventHandler for Handler {
             prelude::command::{Command, CommandOptionType},
         };
 
-        ctx.set_presence(Some(Activity::listening("/chime")), OnlineStatus::Online).await;
+        ctx.set_presence(Some(Activity::listening(format!("/{}", self.command_root))), OnlineStatus::Online).await;
 
         info!("{} is connected!", ready.user.name);
 
-        // TODO cleanup unneeded descriptions
-
         Command::set_global_application_commands(&ctx.http, |create_app_commands| {
             create_app_commands.create_application_command(|cmd| {
-                cmd.name("dab")
-                    .description("modify your chime")
-                    .description_localized("de", "Willkommenssound anpassen")
+                cmd.name(self.command_root.as_str()) // 0
+                    .description("Modify your chime")
                     .create_option(|opt| {
-                        opt.name("clear")
-                            .description("clear your chime")
+                        opt.name("clear") // 0
+                            .description("Clear your chime")
                             .description_localized("de", "Entfernt deinen Willkommenssound")
                             .kind(CommandOptionType::SubCommand)
                     })
                     .create_option(|opt| {
-                        opt.name("set")
-                            .description("set your chime")
+                        opt.name("set") // 1
+                            .description("Set your chime")
                             .description_localized("de", "Setzt deinen Willkommenssound")
                             .kind(CommandOptionType::SubCommandGroup)
                             .create_sub_option(|opt| {
                                 opt.kind(CommandOptionType::SubCommand)
-                                    .name("file")
-                                    .description("attachment with file")
-                                    .description_localized("de", "Anhang mit Datei")
+                                    .name("file") // 0
+                                    .description("Set your chime from a file")
+                                    .description_localized("de", "Lädt eine Audiodatei als Willkommenssound hoch.")
                                     .create_sub_option(|opt|{
-                                        opt.name("attachment")
-                                           .description(".mp3 is preferred")
-                                           .description_localized("de", "MP3 wird empfohlen")
+                                        opt.name("attachment") // 0
+                                           .description("Uploads a file as your chime.")
+                                           .description_localized("de", "Füge eine Audiodatei an. Am besten .mp3!")
                                            .kind(CommandOptionType::Attachment)
                                            .required(true)
                                     })
                             })
                             .create_sub_option(|opt| {
                                 opt.kind(CommandOptionType::SubCommand)
-                                    .name("url")
-                                    .description("link to file")
-                                    .description_localized("de", "Link zur Datei")
+                                    .name("url") // 1
+                                    .description("Set your chime from an url")
+                                    .description_localized("de", "Gibt dem Bot einen Link zu einer Audiodatei.")
                                     .create_sub_option(|opt| {
-                                        opt.name("link")
-                                           .description("link to download audio-file. .mp3 is preferred.")
-                                           .description_localized("de", "Link zum download der Audiodatei. MP3 wird empfohlen")
+                                        opt.name("link") // 0
+                                           .description("Downloads a file as your chime.")
+                                           .description_localized("de", "Link zu einer Audiodatei im Internet. Endet im Idealfall mit '.mp3'!")
                                            .kind(CommandOptionType::String)
                                            .required(true)
                                     })  
@@ -358,7 +359,7 @@ impl EventHandler for Handler {
             info!("Received command interaction: {:#?}", command);
 
             let name = command.data.name.as_str();
-            if name != "dab" { // todo make this dynamic based on config
+            if name != self.command_root {
                 warn!("Unknown command received! {:#?}", name);
                 return;
             }
