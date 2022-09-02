@@ -72,11 +72,12 @@ impl Handler {
         sink: Arc<dyn chimes::ChimeSink>, 
         bus_size : usize, 
         file_duration_max : Duration,
+        file_size_limit_bytes : i64,
         command_root : String
     ) -> Self {
         Self 
         {
-            file_size_limit_bytes : -1,
+            file_size_limit_bytes,
             file_duration_max,
             command_root,
             sink: Arc::clone(&sink),
@@ -192,7 +193,6 @@ impl EventHandler for Handler {
         guild: serenity::model::guild::Guild, 
         _is_new: bool
     ) {
-
         let guild_id = guild.id.0;
 
         let mut watchers = self.watchers.lock().await;
@@ -276,13 +276,11 @@ impl EventHandler for Handler {
         old: Option<serenity::model::voice::VoiceState>, 
         new: serenity::model::voice::VoiceState
     ) {
-
         let user = new.user_id.to_user(&ctx.http).await;
         if user.is_err() {
             error!("Unexpected error, user could not be retrieved! {:#?}", user);
             return
         }
-
         let user = user.unwrap();
 
         if user.bot {
@@ -292,7 +290,6 @@ impl EventHandler for Handler {
         if new.channel_id == None {
             return
         }
-
         let channel_id = new.channel_id.unwrap();
 
         if let Some(prev) = old.as_ref().and_then(|state| state.channel_id) {
@@ -348,7 +345,7 @@ impl EventHandler for Handler {
                                         Some(text) => text,
                                         None => if success { "success!" } else { "that did not work..." }
                                     }
-                                )
+                                ).ephemeral(true)
                             })
                 }).await {
                     error!("Error responding to interaction: {:?}", why);
@@ -436,7 +433,7 @@ impl EventHandler for Handler {
                             }
                             let url = url.unwrap();
 
-                            let response = reqwest::get(url.clone()).await;
+                            let response = reqwest::get(url).await;
                             if response.is_err() {
                                 error!("Could not request {} : {:?}", url_str, response);
                                 huh_weird_link().await;
@@ -457,17 +454,17 @@ impl EventHandler for Handler {
                                 return;
                             }
 
-                            let download = response.text().await;
+                            let download = response.bytes().await;
                             if download.is_err() {
                                 let err = download.err().unwrap();
-                                error!("Could not download from {} : {}", url, err);
+                                error!("Could not download from {} : {}", url_str, err);
                                 respond(&command, ctx, false, Some(format!("{}", err).as_str())).await;
                                 return;
                             }
                             let data = download.unwrap();
 
                             if let Err(why) = self.process_chime_data(
-                                &data.as_bytes(),
+                                &data,
                                 command.user.id.0,
                                 None
                             ).await {

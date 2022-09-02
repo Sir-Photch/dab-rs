@@ -128,7 +128,10 @@ impl ChimeSink for FileChimeSink {
         new_path.push(format!("{user_id}"));
 
         match fs_extra::file::move_file(&file, &new_path, &CopyOptions::default()) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.chimes.lock().await.insert(user_id, new_path);
+                Ok(())
+            },
             Err(why) => {
                 error!("Could not move file {} to {}: {}", file.display(), new_path.display(), why);
                 Err(ChimeSinkError::SaveError)
@@ -140,7 +143,7 @@ impl ChimeSink for FileChimeSink {
         &self, 
         user_id: u64
     ) {
-        if let Some(path) = self.chimes.lock().await.get(&user_id) {
+        if let Some(path) = self.chimes.lock().await.remove(&user_id) {
             if let Err(why) = std::fs::remove_file(path) {
                 error!("Could not remove entry for user: {:#?}", why);
             }

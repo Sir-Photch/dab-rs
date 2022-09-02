@@ -43,7 +43,14 @@ async fn main() {
                 settings["BUS_SIZE"].as_str()
                                             .parse::<usize>()
                                             .expect("Could not get bus-size from config"),
-                std::time::Duration::from_secs(3),
+                std::time::Duration::from_millis(
+                settings["CHIME_DURATION_MAX_MS"].as_str()
+                                                 .parse::<u64>()
+                                                 .expect("Could not get file-duration-max from config")
+                ),
+                1000 * settings["FILE_SIZE_LIMIT_KILOBYTES"].as_str()
+                                                                               .parse::<i64>()
+                                                                               .expect("Could not get maximum filesize from config"),
                 settings["COMMAND_ROOT"].clone()
             )
         )
