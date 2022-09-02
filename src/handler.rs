@@ -56,34 +56,75 @@ struct BusChimePayload {
 
 pub struct Handler {
 
-    pub file_size_limit_bytes : i64,
-    pub file_duration_max : Duration,
-
+    file_size_limit_bytes : i64,
+    file_duration_max : Duration,
     command_root : String,
+    disconnect_timeout : Duration,
 
     sink : Arc<dyn chimes::ChimeSink>,
-
     watchers : Mutex<HashMap<u64, JoinHandle<()>>>,
-
+    cleanup_watcher : Mutex<Option<JoinHandle<()>>>,
+    flag_map : Arc<Mutex<HashMap<u64, bool>>>,
     bus : Mutex<bus::Bus<BusChimePayload>>
 }
 impl Handler {
+    // is there a better way?
     pub fn new(
         sink: Arc<dyn chimes::ChimeSink>, 
         bus_size : usize, 
         file_duration_max : Duration,
         file_size_limit_bytes : i64,
-        command_root : String
+        command_root : String,
+        disconnect_timeout : Duration
     ) -> Self {
         Self 
         {
             file_size_limit_bytes,
             file_duration_max,
             command_root,
+            disconnect_timeout,
             sink: Arc::clone(&sink),
             watchers : Mutex::new(HashMap::new()),
-            bus : Mutex::new(bus::Bus::new(bus_size))            
+            bus : Mutex::new(bus::Bus::new(bus_size)),
+            flag_map : Arc::new(Mutex::new(HashMap::new())),
+            cleanup_watcher : Mutex::new(None)
         }
+    }
+
+    async fn spawn_cleanup_watcher(
+        &self,
+        context : Context
+    ) -> JoinHandle<()> {
+        let timeout = self.disconnect_timeout.clone();
+        let flags = Arc::clone(&self.flag_map);
+        let ctx = context.clone();
+
+        task::spawn(async move {
+
+            loop {
+                tokio::time::sleep(timeout).await;
+                let bird = songbird::get(&ctx).await;
+                if bird.is_none() {
+                    error!("Could not get songbird, invalid context!");
+                    continue
+                }
+                let bird = Arc::clone(&bird.unwrap());
+
+                let mut flag_lock = flags.lock().await;
+
+                for (key, v) in flag_lock.iter_mut() {
+                    if *v {
+                        *v = false;
+                    } else {
+                        if bird.get(*key).is_some() {
+                            if let Err(why) = bird.leave(*key).await {
+                                error!("Could not cleanup guild: {}", why);
+                            }
+                        }
+                    }                    
+                }
+            }
+        })
     }
 
     async fn spawn_guild_watcher(
@@ -92,6 +133,8 @@ impl Handler {
     ) -> JoinHandle<()> {
         let mut task_rx = self.bus.lock().await.add_rx();
         let sink_arc = Arc::clone(&self.sink);
+        let flags = Arc::clone(&self.flag_map);
+
         task::spawn(async move {
             while let Ok(msg) = task_rx.recv() {
 
@@ -105,11 +148,14 @@ impl Handler {
                     continue;
                 }
                 let manager = Arc::clone(&manager.unwrap());
+
                 let (call, result) = manager.join(msg.guild_id, msg.channel_id).await;
                 if let Err(why) = result {
                     error!("Could not join guild: {}", why);
                     continue
                 }
+
+                flags.lock().await.insert(guild_id, true);
 
                 if let Ok(chime) = sink_arc.get_input(msg.user_id).await {
 
@@ -120,9 +166,6 @@ impl Handler {
                         tokio::time::sleep(duration).await;
                     }
                 }
-
-                // will disconnect after every playback FIXME
-                let _ = manager.leave(guild_id).await.map_err(|err| error!("Could not leave guild {}", err));
             }
 
             info!("Ended task for guild {}", guild_id);
@@ -268,6 +311,8 @@ impl EventHandler for Handler {
         })
         .await
         .expect("could not set commands!");
+
+        let _ = self.cleanup_watcher.lock().await.insert(self.spawn_cleanup_watcher(ctx).await);
     }
 
     async fn voice_state_update(
