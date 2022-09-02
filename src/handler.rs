@@ -65,7 +65,9 @@ pub struct Handler {
     watchers : Mutex<HashMap<u64, JoinHandle<()>>>,
     cleanup_watcher : Mutex<Option<JoinHandle<()>>>,
     flag_map : Arc<Mutex<HashMap<u64, bool>>>,
-    bus : Mutex<bus::Bus<BusChimePayload>>
+    bus : Mutex<bus::Bus<BusChimePayload>>,
+
+    latest_context : Arc<Mutex<Option<Context>>>
 }
 impl Handler {
     // is there a better way?
@@ -87,23 +89,33 @@ impl Handler {
             watchers : Mutex::new(HashMap::new()),
             bus : Mutex::new(bus::Bus::new(bus_size)),
             flag_map : Arc::new(Mutex::new(HashMap::new())),
-            cleanup_watcher : Mutex::new(None)
+            cleanup_watcher : Mutex::new(None),
+            latest_context : Arc::new(Mutex::new(None))
         }
     }
 
     async fn spawn_cleanup_watcher(
-        &self,
-        context : Context
+        &self
     ) -> JoinHandle<()> {
         let timeout = self.disconnect_timeout.clone();
         let flags = Arc::clone(&self.flag_map);
-        let ctx = context.clone();
+        let ctx = Arc::clone(&self.latest_context);
 
         task::spawn(async move {
 
+            let mut context = Option::<Context>::None;
+
             loop {
                 tokio::time::sleep(timeout).await;
-                let bird = songbird::get(&ctx).await;
+
+                if let Some(ctx_buf) = ctx.lock().await.take() {
+                    context = Some(ctx_buf);
+                }
+                if context.is_none() {
+                    continue
+                }
+                
+                let bird = songbird::get(&context.clone().unwrap()).await;
                 if bird.is_none() {
                     error!("Could not get songbird, invalid context!");
                     continue
@@ -230,9 +242,10 @@ impl Handler {
 }
 #[async_trait]
 impl EventHandler for Handler {
+
     async fn guild_create(
         &self, 
-        _ctx: Context, 
+        ctx: Context, 
         guild: serenity::model::guild::Guild, 
         _is_new: bool
     ) {
@@ -248,6 +261,8 @@ impl EventHandler for Handler {
             guild_id, 
             self.spawn_guild_watcher(guild_id).await
         ); 
+
+        let _ = self.latest_context.lock().await.insert(ctx);
     }
 
     async fn ready(
@@ -312,7 +327,8 @@ impl EventHandler for Handler {
         .await
         .expect("could not set commands!");
 
-        let _ = self.cleanup_watcher.lock().await.insert(self.spawn_cleanup_watcher(ctx).await);
+        let _ = self.latest_context.lock().await.insert(ctx);
+        let _ = self.cleanup_watcher.lock().await.insert(self.spawn_cleanup_watcher().await);
     }
 
     async fn voice_state_update(
@@ -359,6 +375,8 @@ impl EventHandler for Handler {
             }
         }
 
+        let _ = self.latest_context.lock().await.insert(ctx.clone());
+
         self.bus.lock().await.broadcast(
            BusChimePayload {
                 guild_id : guild_id.0, 
@@ -366,7 +384,7 @@ impl EventHandler for Handler {
                 user_id : user.id.0,
                 ctx
             }
-        )
+        );
     }
 
     async fn interaction_create(
@@ -426,7 +444,7 @@ impl EventHandler for Handler {
             match base_option.name.as_str() {
                 "clear" => {
                     self.sink.clear_data(user).await;
-                    respond(&command, ctx, true, None).await;
+                    respond(&command, ctx.clone(), true, None).await;
                 },
                 "set" => {
 
@@ -464,7 +482,7 @@ impl EventHandler for Handler {
                                 return;
                             }
 
-                            respond(&command, ctx, true, None).await;
+                            respond(&command, ctx.clone(), true, None).await;
                         }, // attachment
                         Some(CommandDataOptionValue::String(url_str)) => {
 
@@ -517,7 +535,7 @@ impl EventHandler for Handler {
                                 return;
                             }
 
-                            respond(&command, ctx, true, None).await;
+                            respond(&command, ctx.clone(), true, None).await;
                         },// url
                         _ => warn!("Malformed command received {:#?}", base_option)
 
@@ -525,6 +543,10 @@ impl EventHandler for Handler {
                 }, // "set"
                 val => warn!("Unknown option received! {}", val)
             }; // match name
-        }
-    }
+        } // if let interaction
+
+        let _ = self.latest_context.lock().await.insert(ctx);
+
+    } // interaction_create
+
 }
