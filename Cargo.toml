@@ -13,6 +13,9 @@ features = ["http", "builder", "client", "gateway", "cache", "temp_cache", "voic
 version = "*"
 features = ["rt", "rt-multi-thread", "macros", "signal", "time"]
 
+[target.aarch64-unknown-linux-gnu.dependencies]
+openssl = { version = "*", features = ["vendored"] }
+
 [dependencies]
 songbird = "*"
 url = "*"
