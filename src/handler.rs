@@ -17,17 +17,20 @@ use serenity::{
     async_trait, 
     prelude::*,
     model::{
-    gateway::Ready,
-    application::{
-        interaction::{
-            Interaction,
-            InteractionResponseType,    
-            application_command::CommandDataOption,
-            application_command::CommandDataOptionValue,
-            application_command::ApplicationCommandInteraction
+        gateway::Ready,
+        application::{
+            interaction::{
+                Interaction,
+                InteractionResponseType,    
+                application_command::{
+                    CommandDataOption,
+                    CommandDataOptionValue,
+                    ApplicationCommandInteraction
+                }
+            }
         }
     }
-}};
+};
 use ffprobe::ffprobe;
 
 #[derive(Debug)]
@@ -37,7 +40,10 @@ enum AttachmentError {
     Tempfile
 }
 impl Display for AttachmentError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self, 
+        f: &mut std::fmt::Formatter<'_>
+    ) -> std::fmt::Result {
         match self {
             AttachmentError::Duration => write!(f, "Duration is too long"),
             AttachmentError::Unreadable => write!(f, "Cant read the chime"),
@@ -97,7 +103,7 @@ impl Handler {
     async fn spawn_cleanup_watcher(
         &self
     ) -> JoinHandle<()> {
-        let timeout = self.disconnect_timeout.clone();
+        let timeout = self.disconnect_timeout;
         let flags = Arc::clone(&self.flag_map);
         let ctx = Arc::clone(&self.latest_context);
 
@@ -127,11 +133,9 @@ impl Handler {
                 for (key, v) in flag_lock.iter_mut() {
                     if *v {
                         *v = false;
-                    } else {
-                        if bird.get(*key).is_some() {
-                            if let Err(why) = bird.leave(*key).await {
-                                error!("Could not cleanup guild: {}", why);
-                            }
+                    } else if bird.get(*key).is_some() {
+                        if let Err(why) = bird.leave(*key).await {
+                            error!("Could not cleanup guild: {}", why);
                         }
                     }                    
                 }
@@ -171,11 +175,15 @@ impl Handler {
 
                 if let Ok(chime) = sink_arc.get_input(msg.user_id).await {
 
-                    let player = call.lock().await.play_only_source(chime);
+                    let mut call_lock = call.lock().await;
+                    let _ = call_lock.deafen(true).await.map_err(|err| error!("Could not deafen: {}", err));
+                    let player = call_lock.play_only_source(chime);
 
                     // block until track is finished
                     if let Some(duration) = player.metadata().duration {
                         tokio::time::sleep(duration).await;
+                    } else {
+                        warn!("Track has no duration!");
                     }
                 }
             }
@@ -203,7 +211,7 @@ impl Handler {
             return Err(AttachmentError::Tempfile);
         }
         let temp_file = temp_file.unwrap();
-        if let Err(why) = temp_file.write_all_at(&data, 0) {
+        if let Err(why) = temp_file.write_all_at(data, 0) {
             error!("Could not write data to file: {:#?}", why);
             return Err(AttachmentError::Tempfile);
         }
@@ -412,7 +420,6 @@ impl EventHandler for Handler {
                             })
                 }).await {
                     error!("Error responding to interaction: {:?}", why);
-                    return;
                 }
             }
 
@@ -547,6 +554,6 @@ impl EventHandler for Handler {
 
         let _ = self.latest_context.lock().await.insert(ctx);
 
-    } // interaction_create
+    }
 
 }

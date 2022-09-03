@@ -1,10 +1,13 @@
 mod chimes;
 mod handler;
+mod logger;
 
 use std::{
     collections::HashMap,
-    sync::Arc
+    sync::Arc,
+    time::Duration
 };
+use chrono::prelude::*;
 use log::{info, error};
 use config::Config;
 use serenity::{
@@ -15,7 +18,9 @@ use songbird::SerenityInit;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    let log_config = crate::logger::configure_logger();
+
+    log4rs::init_config(log_config.expect("Could not configure log")).expect("Initializing logger failed");
 
     let settings = Config::builder()
         .add_source(config::File::with_name("Settings"))
@@ -43,7 +48,7 @@ async fn main() {
                 settings["BUS_SIZE"].as_str()
                                             .parse::<usize>()
                                             .expect("Could not get bus-size from config"),
-std::time::Duration::from_millis(
+                Duration::from_millis(
                     settings["CHIME_DURATION_MAX_MS"].as_str()
                                                      .parse::<u64>()
                                                      .expect("Could not get file-duration-max from config")
@@ -52,7 +57,7 @@ std::time::Duration::from_millis(
                                                                                .parse::<i64>()
                                                                                .expect("Could not get maximum filesize from config"),
                 settings["COMMAND_ROOT"].clone(),
-                std::time::Duration::from_millis(
+                Duration::from_millis(
                     settings["CONNECTION_TIMEOUT_MILLISECONDS"].as_str()
                                                                .parse::<u64>()
                                                                .expect("Could not get connection-timeout-ms from config")
@@ -64,10 +69,12 @@ std::time::Duration::from_millis(
         .await
         .expect("Error creating client");
 
+    let exec_start = Utc::now();
+
     tokio::spawn(async move {
         let _ = client.start().await.map_err(|why| error!("Client ended: {:#?}", why));
     });
 
     let _ = tokio::signal::ctrl_c().await;
-    info!("Received interrupt. Exiting...");
+    info!("Received interrupt. Session lasted {}. Exiting...", Utc::now() - exec_start);
 }
