@@ -103,7 +103,7 @@ impl Handler {
     async fn spawn_cleanup_watcher(
         &self
     ) -> JoinHandle<()> {
-        let timeout = self.disconnect_timeout;
+        let timeout = self.disconnect_timeout.clone();
         let flags = Arc::clone(&self.flag_map);
         let ctx = Arc::clone(&self.latest_context);
 
@@ -175,11 +175,12 @@ impl Handler {
 
                 if let Ok(chime) = sink_arc.get_input(msg.user_id).await {
 
-                    let mut call_lock = call.lock().await;
-                    let _ = call_lock.deafen(true).await.map_err(|err| error!("Could not deafen: {}", err));
-                    let player = call_lock.play_only_source(chime);
+                    // dont keep mutex-guards for too long
+                    if let Err(why) = call.lock().await.deafen(true).await {
+                        error!("Could not deafen: {:?}", why);
+                    }
+                    let player = call.lock().await.play_only_source(chime);
 
-                    // block until track is finished
                     if let Some(duration) = player.metadata().duration {
                         tokio::time::sleep(duration).await;
                     } else {
@@ -551,7 +552,5 @@ impl EventHandler for Handler {
         } // if let interaction
 
         let _ = self.latest_context.lock().await.insert(ctx);
-
     }
-
 }
