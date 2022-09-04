@@ -103,7 +103,7 @@ impl Handler {
     async fn spawn_cleanup_watcher(
         &self
     ) -> JoinHandle<()> {
-        let timeout = self.disconnect_timeout.clone();
+        let timeout = self.disconnect_timeout;
         let flags = Arc::clone(&self.flag_map);
         let ctx = Arc::clone(&self.latest_context);
 
