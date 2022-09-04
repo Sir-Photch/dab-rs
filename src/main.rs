@@ -1,5 +1,6 @@
 mod chimes;
 mod handler;
+mod fluent;
 
 use std::{
     collections::HashMap,
@@ -14,6 +15,7 @@ use serenity::{
     framework::standard::StandardFramework
 };
 use songbird::SerenityInit;
+use unic_langid::LanguageIdentifier;
 
 fn setup_logger() -> Result<(), fern::InitError> {
 
@@ -78,6 +80,14 @@ async fn main() {
         userdata_dir
     ).await.expect("Could not initialize sink!");
 
+    let mut resource_dir = std::path::PathBuf::new();
+    resource_dir.push(settings["RESOURCE_DIR"].as_str());
+
+    let localizer = fluent::FluentLocalizer::new(
+        settings["DEFAULT_LOCALE"].parse::<LanguageIdentifier>().expect("Could not parse default locale!"),
+        resource_dir
+    ).expect("Could not initialize localizer!");
+
     let sink = Arc::new(sink);
 
     let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
@@ -100,6 +110,9 @@ async fn main() {
                     settings["CONNECTION_TIMEOUT_MILLISECONDS"].as_str()
                                                                .parse::<u64>()
                                                                .expect("Could not get connection-timeout-ms from config")
+                ),
+                Mutex::new(
+                    localizer
                 )
             )
         )

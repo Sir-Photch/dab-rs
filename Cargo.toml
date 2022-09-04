@@ -18,6 +18,9 @@ features = ["rt", "rt-multi-thread", "macros", "signal", "time"]
 openssl = { version = "*", features = ["vendored"] }
 
 [dependencies]
+unic-langid = "*"
+fluent-bundle = "*"
+intl-memoizer = "*"
 log = "*"
 fern = { version = "*", features = ["colored"] }
 chrono = "*"
