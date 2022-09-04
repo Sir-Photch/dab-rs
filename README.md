@@ -20,6 +20,9 @@ If some user connects to a channel, the bot will join that channel and play the 
 
 When multiple users connect at the same time, their chimes will be queued and played in FCFS-order, also considering different channels in the same guild.
 
+### Localization
+This bot is implemented to have full support for localization. This is achieved by using [.ftl](https://projectfluent.org/) resources with [fluent-rs](https://github.com/projectfluent/fluent-rs).
+
 ## How to get started
 ### Compilation
 Ensure that `ffmpeg` and `opus` are installed. The package names to install them on your distro my differ. For arch-based distros, the following commands will get you started:
@@ -66,6 +69,8 @@ COMMAND_ROOT = "dab"
 CHIME_DURATION_MAX_MS = 3000
 FILE_SIZE_LIMIT_KILOBYTES = 5000
 CONNECTION_TIMEOUT_MILLISECONDS = 10000
+RESOURCE_DIR = "./resources"
+DEFAULT_LOCALE = "en-US"
 ```
 - `USERDATA_DIR` specifies the path where the chimes will be saved.
 - `API_TOKEN` is your unique token from discord.
@@ -74,3 +79,8 @@ CONNECTION_TIMEOUT_MILLISECONDS = 10000
 - `CHIME_DURATION_MAX_MS` is the maximum duration of a users chime, in milliseconds.
 - `FILE_SIZE_LIMIT_KILOBYTES` is the maximum size of a users chime on disk, in KB.
 - `CONNECTION_TIMEOUT_MILLISECONDS` is the duration that the bot will remain connected to a channel, after no other user joins a channel in the guild, in milliseconds.
+- `RESOURCE_DIR` is the path to the directory containing the folder structure for localization.
+- `DEFAULT_LOCALE` is the fallback locale that is to be used when translations for a users locale are not available.
+
+### Localization
+By default, this repository contains translations in [resources](./resources/). To be able to use them, reference this folder in the configuration for your setup. Localizations are dynamically loaded at startup, as long as the folder names obey the [Unicode Language Identifier](https://unicode.org/reports/tr35/tr35.html#Unicode_language_identifier) standards, e.g. `en-US` or `de`.
