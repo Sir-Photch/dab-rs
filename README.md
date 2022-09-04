@@ -73,4 +73,4 @@ CONNECTION_TIMEOUT_MILLISECONDS = 10000
 - `COMMAND_ROOT` is the name of the base command. This may be reconfigured, depending on other bots in your guild(s).
 - `CHIME_DURATION_MAX_MS` is the maximum duration of a users chime, in milliseconds.
 - `FILE_SIZE_LIMIT_KILOBYTES` is the maximum size of a users chime on disk, in KB.
-- `CONNECTION_TIMEOUT_MILLISECONDS` is the duration that the bot will remain connected to a channel, after no other user joins a channel in the guild.
+- `CONNECTION_TIMEOUT_MILLISECONDS` is the duration that the bot will remain connected to a channel, after no other user joins a channel in the guild, in milliseconds.
