@@ -1,5 +1,6 @@
 mod chimes;
 mod handler;
+mod fluent;
 
 use std::{
     collections::HashMap,
