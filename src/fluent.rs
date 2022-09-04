@@ -22,37 +22,34 @@ impl FluentLocalizer {
         let res_dir = fs::read_dir(resource_dir)?;
         let mut map = HashMap::new();
         
-        for entry in res_dir {
-            if let Ok(entry) = entry {
-                if !entry.path().is_dir() {
+        for entry in res_dir.flatten() {
+            if !entry.path().is_dir() {
+                continue
+            }
+
+            let locale = entry.file_name().to_string_lossy().parse::<LanguageIdentifier>()?;
+            let mut bundle = FluentBundle::new_concurrent(vec![locale.clone()]);
+
+            for resource in entry.path().read_dir()?.flatten() {
+
+                if !resource.path().is_file() || !resource.path().ends_with(".ftl") {
                     continue
                 }
 
-                let locale = entry.file_name().to_string_lossy().parse::<LanguageIdentifier>()?;
-                let mut bundle = FluentBundle::new_concurrent(vec![locale.clone()]);
-
-                for resource in entry.path().read_dir()? {
-                    if let Ok(resource) = resource {
-                        if !resource.path().is_file() || !resource.path().ends_with(".ftl") {
-                            continue
-                        }
-
-                        let resource_string = fs::read_to_string(resource.path())?;       
-                        let resource_parsed = FluentResource::try_new(resource_string);
+                let resource_string = fs::read_to_string(resource.path())?;       
+                let resource_parsed = FluentResource::try_new(resource_string);
                         
-                        if let Ok(resource_parsed) = resource_parsed {
-                            if let Err(why) = bundle.add_resource(resource_parsed) {
-                                error!("Could not add resource: {why:?}");
-                            }
-                        } else if let Err((_, why)) = resource_parsed {
-                            error!("Could not parse resource {}: {:?}", resource.path().display(), why)
-                        }
-                        
+                if let Ok(resource_parsed) = resource_parsed {
+                    if let Err(why) = bundle.add_resource(resource_parsed) {
+                        error!("Could not add resource: {why:?}");
                     }
-                }
+                } else if let Err((_, why)) = resource_parsed {
+                    error!("Could not parse resource {}: {:?}", resource.path().display(), why)
+                }                       
 
-                map.insert(locale, bundle);
             }
+
+            map.insert(locale, bundle);
         }
 
         if !map.contains_key(&fallback_locale) {
@@ -99,7 +96,7 @@ impl FluentLocalizer {
         let mut errors = vec![];
         let retval = bundle.format_pattern(msg, args, &mut errors);
 
-        if errors.len() > 0 {
+        if !errors.is_empty() {
             warn!("Errors while formatting {msg:?}: {errors:?}");
         }
 
