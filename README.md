@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="200" height="200" alt="DAB-icon" src="dab-rs.png"/>
+  <img width="200" height="200" alt="dab-rs icon" src="logo.png"/>
 </p>
 
 <h1 align="center">dab-rs</h1>
