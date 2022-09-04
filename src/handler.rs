@@ -448,10 +448,13 @@ impl EventHandler for Handler {
 
             let base_option : &CommandDataOption = base_option.unwrap();
 
+            let username = format!("{}#{:04}", command.user.name, command.user.discriminator);
+
             /* _BIG_ match */
             match base_option.name.as_str() {
                 "clear" => {
                     self.sink.clear_data(user).await;
+                    info!("User {username} cleared his chime");
                     respond(&command, ctx.clone(), true, None).await;
                 },
                 "set" => {
@@ -468,7 +471,7 @@ impl EventHandler for Handler {
                             if self.file_size_limit_bytes != -1 && 
                                attachment.size as i64 > self.file_size_limit_bytes 
                             {
-                                info!("User {} supplied large file.", command.user.name);
+                                info!("User {username} supplied large file");
                                 respond(&command, ctx, false, Some("Whoops, too big!")).await;
                                 return;
                             }
@@ -481,22 +484,24 @@ impl EventHandler for Handler {
                             }
                             let data = data.unwrap();
 
-                            if let Err(_why) = self.process_chime_data(
+                            if let Err(why) = self.process_chime_data(
                                 &data, 
                                 command.user.id.0, 
                                 Some(&attachment.filename)
                             ).await {
+                                info!("Checking chime data for user {username} failed: {:?}", why);
                                 respond(&command, ctx, false, None).await;
                                 return;
                             }
 
+                            info!("User {username} changed his chime successfully.");
                             respond(&command, ctx.clone(), true, None).await;
                         }, // attachment
                         Some(CommandDataOptionValue::String(url_str)) => {
                             
                             let url = url::Url::parse(url_str);
                             if url.is_err() {
-                                warn!("User {} supplied bad url: {}", command.user.name, url_str);
+                                info!("User {username} supplied bad url: {url_str}");
                                 respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
                                 return;
                             }
@@ -504,21 +509,21 @@ impl EventHandler for Handler {
 
                             let response = reqwest::get(url).await;
                             if response.is_err() {
-                                error!("Could not request {} : {:?}", url_str, response);
+                                error!("Could not request {url_str} for user {username}: {:?}", response);
                                 respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
                                 return;
                             }
                             let response = response.unwrap();
                             let size = response.content_length();
                             if size.is_none() {
-                                warn!("Bad header, no information about content-length");
+                                warn!("Bad header for url from user {username}, no information about content-length");
                                 respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
                                 return;
                             }                            
                             if self.file_size_limit_bytes != -1 && 
                                 size.unwrap() as i64 > self.file_size_limit_bytes 
                             {
-                                info!("User {} supplied large file.", command.user.name);
+                                info!("User {username} supplied large file.");
                                 respond(&command, ctx, false, Some("Whoops, too big!")).await;
                                 return;
                             }
@@ -526,7 +531,7 @@ impl EventHandler for Handler {
                             let download = response.bytes().await;
                             if download.is_err() {
                                 let err = download.err().unwrap();
-                                error!("Could not download from {} : {}", url_str, err);
+                                error!("Could not download for user {username} from {url_str} : {:?}", err);
                                 respond(&command, ctx, false, Some(format!("{}", err).as_str())).await;
                                 return;
                             }
@@ -537,10 +542,12 @@ impl EventHandler for Handler {
                                 command.user.id.0,
                                 None
                             ).await {
+                                info!("Checking chime data for user {username} failed: {:?}", why);
                                 respond(&command, ctx, false, Some(format!("{}", why).as_str())).await;
                                 return;
                             }
 
+                            info!("User {username} changed his chime successfully.");
                             respond(&command, ctx.clone(), true, None).await;
                         },// url
                         _ => warn!("Malformed command received {:?}", base_option)
