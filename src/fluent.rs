@@ -30,9 +30,10 @@ impl FluentLocalizer {
             let locale = entry.file_name().to_string_lossy().parse::<LanguageIdentifier>()?;
             let mut bundle = FluentBundle::new_concurrent(vec![locale.clone()]);
 
-            for resource in entry.path().read_dir()?.flatten() {
+            for resource in (entry.path().read_dir()?).flatten() {
 
-                if !resource.path().is_file() || !resource.path().ends_with(".ftl") {
+                if !resource.path().is_file() 
+                || resource.path().extension().expect("Invalid file in localizations!") != "ftl" {
                     continue
                 }
 
@@ -72,7 +73,7 @@ impl FluentLocalizer {
         };
 
         if !self.resources.contains_key(&lang_id) {
-            error!("No localization for {lang_id} available! - Using fallback...");
+            error!("No localization for '{lang_id}' available! - Using fallback...");
             lang_id = self.fallback_locale.clone();
         }
         let bundle = self.resources.get(&lang_id).unwrap();
@@ -82,13 +83,13 @@ impl FluentLocalizer {
                 match fluent_message.value() {
                     Some(pattern) => pattern,
                     None => {
-                        error!("Translation for {msg} in lang {lang_id} has no pattern!");
+                        error!("Translation for '{msg}' in lang '{lang_id}' has no pattern!");
                         return Cow::Borrowed("Not translated :b");
                     }
                 }
             },
             None => {
-                error!("Translation for {msg} in lang {lang_id} not available!");
+                error!("Translation for '{msg}' in lang '{lang_id}' not available!");
                 return Cow::Borrowed("Not translated :b");
             }
         };
@@ -97,7 +98,7 @@ impl FluentLocalizer {
         let retval = bundle.format_pattern(msg, args, &mut errors);
 
         if !errors.is_empty() {
-            warn!("Errors while formatting {msg:?}: {errors:?}");
+            warn!("Errors while formatting: {msg:?}: {errors:?}");
         }
 
         retval

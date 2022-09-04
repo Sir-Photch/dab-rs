@@ -45,9 +45,9 @@ impl Display for AttachmentError {
         f: &mut std::fmt::Formatter<'_>
     ) -> std::fmt::Result {
         match self {
-            AttachmentError::Duration => write!(f, "Duration is too long"),
-            AttachmentError::Unreadable => write!(f, "Cant read the chime"),
-            AttachmentError::Tempfile => write!(f, "Oops! Internal error"),
+            AttachmentError::Duration => write!(f, "duration-exceeded"),
+            AttachmentError::Unreadable => write!(f, "data-unreadable"),
+            AttachmentError::Tempfile => write!(f, "internal-error"),
         }
     }
 }
@@ -458,9 +458,7 @@ impl EventHandler for Handler {
 
             let base_option : &CommandDataOption = base_option.unwrap();
 
-            let username = format!("'{}#{:04}'", command.user.name, command.user.discriminator);
-
-            self.localizer.lock().await.localize(&command.locale, "foo", None);
+            let username = command.user.tag();
 
             /* _BIG_ match */
             match base_option.name.as_str() {
@@ -484,14 +482,14 @@ impl EventHandler for Handler {
                                attachment.size as i64 > self.file_size_limit_bytes 
                             {
                                 info!("User {username} supplied large file");
-                                self.respond(&command, ctx, false, Some("Whoops, too big!")).await;
+                                self.respond(&command, ctx, false, Some("file-too-large")).await;
                                 return;
                             }
 
                             let data = attachment.download().await;
                             if data.is_err() {
                                 warn!("Download failed! {:?}", data);
-                                self.respond(&command, ctx, false, Some("Download failed!")).await;
+                                self.respond(&command, ctx, false, Some("download-failed")).await;
                                 return;
                             }
                             let data = data.unwrap();
@@ -514,7 +512,7 @@ impl EventHandler for Handler {
                             let url = url::Url::parse(url_str);
                             if url.is_err() {
                                 info!("User {username} supplied bad url: {url_str}");
-                                self.respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
+                                self.respond(&command, ctx.clone(), false, Some("bad-url")).await;
                                 return;
                             }
                             let url = url.unwrap();
@@ -522,21 +520,21 @@ impl EventHandler for Handler {
                             let response = reqwest::get(url).await;
                             if response.is_err() {
                                 error!("Could not request {url_str} for user {username}: {:?}", response);
-                                self.respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
+                                self.respond(&command, ctx.clone(), false, Some("bad-url")).await;
                                 return;
                             }
                             let response = response.unwrap();
                             let size = response.content_length();
                             if size.is_none() {
                                 warn!("Bad header for url from user {username}, no information about content-length");
-                                self.respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
+                                self.respond(&command, ctx.clone(), false, Some("bad-url")).await;
                                 return;
                             }                            
                             if self.file_size_limit_bytes != -1 && 
                                 size.unwrap() as i64 > self.file_size_limit_bytes 
                             {
                                 info!("User {username} supplied large file.");
-                                self.respond(&command, ctx, false, Some("Whoops, too big!")).await;
+                                self.respond(&command, ctx, false, Some("file-too-large")).await;
                                 return;
                             }
 
