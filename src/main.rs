@@ -17,10 +17,13 @@ use songbird::SerenityInit;
 
 fn setup_logger() -> Result<(), fern::InitError> {
 
+    let colors = fern::colors::ColoredLevelConfig::new()
+        .error(fern::colors::Color::BrightRed);
+
     let file_config = fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
-                "{} | [{}][{}] {}",
+                "{} [{}][{}] | {}",
                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                 record.level(),
                 record.target(),
@@ -34,10 +37,11 @@ fn setup_logger() -> Result<(), fern::InitError> {
         .chain(fern::log_file("activity.log")?);
     
     let stderr_config = fern::Dispatch::new()
-        .format(|out, message, record| {
+        .format(move |out, message, record| {
             out.finish(format_args!(
-                "{} | [{}] {}",
+                "{} | [{}][{}] -- {}",
                 Local::now().format("%H:%M:%S"),
+                colors.color(record.level()),
                 record.target(),
                 message
             ))

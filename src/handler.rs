@@ -448,7 +448,7 @@ impl EventHandler for Handler {
 
             let base_option : &CommandDataOption = base_option.unwrap();
 
-            let username = format!("{}#{:04}", command.user.name, command.user.discriminator);
+            let username = format!("'{}#{:04}'", command.user.name, command.user.discriminator);
 
             /* _BIG_ match */
             match base_option.name.as_str() {

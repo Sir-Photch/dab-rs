@@ -19,7 +19,7 @@ openssl = { version = "*", features = ["vendored"] }
 
 [dependencies]
 log = "*"
-fern = "*"
+fern = { version = "*", features = ["colored"] }
 chrono = "*"
 songbird = "*"
 url = "*"
