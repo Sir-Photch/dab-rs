@@ -20,8 +20,7 @@ openssl = { version = "*", features = ["vendored"] }
 [dependencies]
 unic-langid = "*"
 fluent-bundle = "*"
-fluent-resmgr = "*"
-fluent-langneg = "*"
+intl-memoizer = "*"
 log = "*"
 fern = { version = "*", features = ["colored"] }
 chrono = "*"
