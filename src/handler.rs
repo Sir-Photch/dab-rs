@@ -8,11 +8,11 @@ use std::{
     time::Duration, 
     fmt::Display
 };
+use log::{info, warn, error};
 use tokio::{
     task::{self, JoinHandle},
     sync::Mutex
 };
-use log::{info, warn, error};
 use serenity::{
     async_trait, 
     prelude::*,
@@ -207,12 +207,12 @@ impl Handler {
 
         let temp_file = File::create(&temp_path);
         if temp_file.is_err() {
-            error!("Could not create temporary file {:#?}", temp_file);
+            error!("Could not create temporary file {:?}", temp_file);
             return Err(AttachmentError::Tempfile);
         }
         let temp_file = temp_file.unwrap();
         if let Err(why) = temp_file.write_all_at(data, 0) {
-            error!("Could not write data to file: {:#?}", why);
+            error!("Could not write data to file: {:?}", why);
             return Err(AttachmentError::Tempfile);
         }
 
@@ -234,7 +234,7 @@ impl Handler {
                 }
             },
             Err(why) => {
-                error!("FFProbe on data failed: {:#?}", why);
+                error!("FFProbe on data failed: {:?}", why);
                 return Err(AttachmentError::Unreadable);
             }
         };
@@ -347,7 +347,7 @@ impl EventHandler for Handler {
     ) {
         let user = new.user_id.to_user(&ctx.http).await;
         if user.is_err() {
-            error!("Unexpected error, user could not be retrieved! {:#?}", user);
+            error!("Unexpected error, user could not be retrieved! {:?}", user);
             return
         }
         let user = user.unwrap();
@@ -423,11 +423,11 @@ impl EventHandler for Handler {
                 }
             }
 
-            info!("Received command interaction: {:#?}", command);
+            info!("Received command interaction: {:?}", command);
 
             let name = command.data.name.as_str();
             if name != self.command_root {
-                warn!("Unknown command received! {:#?}", name);
+                warn!("Unknown command received! {:?}", name);
                 return;
             }
 
@@ -458,7 +458,7 @@ impl EventHandler for Handler {
                     if base_option.options.len() != 1 || 
                        base_option.options.get(0).unwrap().options.len() != 1 
                     {
-                        warn!("Malformed command received {:#?}", base_option);
+                        warn!("Malformed command received {:?}", base_option);
                         return;
                     }
 
@@ -474,7 +474,7 @@ impl EventHandler for Handler {
 
                             let data = attachment.download().await;
                             if data.is_err() {
-                                warn!("Download failed! {:#?}", data);
+                                warn!("Download failed! {:?}", data);
                                 respond(&command, ctx, false, Some("Download failed!")).await;
                                 return;
                             }
@@ -492,13 +492,11 @@ impl EventHandler for Handler {
                             respond(&command, ctx.clone(), true, None).await;
                         }, // attachment
                         Some(CommandDataOptionValue::String(url_str)) => {
-
-                            let huh_weird_link = || respond(&command, ctx.clone(), false, Some("Huh, weird link!"));
                             
                             let url = url::Url::parse(url_str);
                             if url.is_err() {
                                 warn!("User {} supplied bad url: {}", command.user.name, url_str);
-                                huh_weird_link().await;
+                                respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
                                 return;
                             }
                             let url = url.unwrap();
@@ -506,14 +504,14 @@ impl EventHandler for Handler {
                             let response = reqwest::get(url).await;
                             if response.is_err() {
                                 error!("Could not request {} : {:?}", url_str, response);
-                                huh_weird_link().await;
+                                respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
                                 return;
                             }
                             let response = response.unwrap();
                             let size = response.content_length();
                             if size.is_none() {
                                 warn!("Bad header, no information about content-length");
-                                huh_weird_link().await;
+                                respond(&command, ctx.clone(), false, Some("Huh, weird link!")).await;
                                 return;
                             }                            
                             if self.file_size_limit_bytes != -1 && 
@@ -544,7 +542,7 @@ impl EventHandler for Handler {
 
                             respond(&command, ctx.clone(), true, None).await;
                         },// url
-                        _ => warn!("Malformed command received {:#?}", base_option)
+                        _ => warn!("Malformed command received {:?}", base_option)
 
                     }; // match attachment, url
                 }, // "set"

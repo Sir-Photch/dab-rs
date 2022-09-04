@@ -3,3 +3,4 @@ Settings.toml
 /userdata
 /.vscode
 upload.sh
+activity.log

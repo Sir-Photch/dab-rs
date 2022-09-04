@@ -1,14 +1,13 @@
 mod chimes;
 mod handler;
-mod logger;
 
 use std::{
     collections::HashMap,
     sync::Arc,
     time::Duration
 };
-use chrono::prelude::*;
 use log::{info, error};
+use chrono::prelude::*;
 use config::Config;
 use serenity::{
     prelude::*,
@@ -16,11 +15,47 @@ use serenity::{
 };
 use songbird::SerenityInit;
 
+fn setup_logger() -> Result<(), fern::InitError> {
+
+    let file_config = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{} | [{}][{}] {}",
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .level(log::LevelFilter::Info)
+        .level_for("serenity", log::LevelFilter::Warn)
+        .level_for("songbird", log::LevelFilter::Warn)
+        .level_for("tracing", log::LevelFilter::Warn)
+        .chain(fern::log_file("activity.log")?);
+    
+    let stderr_config = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{} | [{}] {}",
+                Local::now().format("%H:%M:%S"),
+                record.target(),
+                message
+            ))
+        })
+        .level(log::LevelFilter::Error)
+        .chain(std::io::stderr());
+
+    fern::Dispatch::new()
+        .chain(file_config)
+        .chain(stderr_config)
+        .apply()?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
-    let log_config = crate::logger::configure_logger();
-
-    log4rs::init_config(log_config.expect("Could not configure log")).expect("Initializing logger failed");
+    setup_logger().expect("Could not setup logger!");
 
     let settings = Config::builder()
         .add_source(config::File::with_name("Settings"))
