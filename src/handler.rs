@@ -289,8 +289,8 @@ impl Handler {
         let default_locale = guard.fallback_locale.to_string();
         let mut cmd = cmd.description(guard.localize(&default_locale, msg, None));
 
-        for loc in available_locales.into_iter().filter(|s| **s != default_locale) {
-            cmd = cmd.description_localized(loc.as_str(), guard.localize(&loc, msg, None));
+        for loc in available_locales.iter().filter(|s| **s != default_locale) {
+            cmd = cmd.description_localized(loc.as_str(), guard.localize(loc, msg, None));
         }
         cmd
     }
@@ -304,8 +304,8 @@ impl Handler {
         let default_locale = guard.fallback_locale.to_string();
         let mut opt = opt.description(guard.localize(&default_locale, msg, None));
 
-        for loc in available_locales.into_iter().filter(|s| **s != default_locale) {
-            opt = opt.description_localized(loc.as_str(), guard.localize(&loc, msg, None));
+        for loc in available_locales.iter().filter(|s| **s != default_locale) {
+            opt = opt.description_localized(loc.as_str(), guard.localize(loc, msg, None));
         }
         opt
     }
