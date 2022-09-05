@@ -1,26 +1,17 @@
 mod chimes;
-mod handler;
 mod fluent;
+mod handler;
 
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::Duration
-};
-use log::{info, error};
 use chrono::prelude::*;
 use config::Config;
-use serenity::{
-    prelude::*,
-    framework::standard::StandardFramework
-};
+use log::{error, info};
+use serenity::{framework::standard::StandardFramework, prelude::*};
 use songbird::SerenityInit;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use unic_langid::LanguageIdentifier;
 
 fn setup_logger() -> Result<(), fern::InitError> {
-
-    let colors = fern::colors::ColoredLevelConfig::new()
-        .error(fern::colors::Color::BrightRed);
+    let colors = fern::colors::ColoredLevelConfig::new().error(fern::colors::Color::BrightRed);
 
     let file_config = fern::Dispatch::new()
         .format(|out, message, record| {
@@ -37,7 +28,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
         .level_for("songbird", log::LevelFilter::Warn)
         .level_for("tracing", log::LevelFilter::Warn)
         .chain(fern::log_file("activity.log")?);
-    
+
     let stderr_config = fern::Dispatch::new()
         .format(move |out, message, record| {
             out.finish(format_args!(
@@ -71,51 +62,56 @@ async fn main() {
         .expect("Could not deserialize settings!");
 
     let framework = StandardFramework::new();
-    let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT | GatewayIntents::GUILD_VOICE_STATES;
+    let intents = GatewayIntents::non_privileged()
+        | GatewayIntents::MESSAGE_CONTENT
+        | GatewayIntents::GUILD_VOICE_STATES;
 
     let mut userdata_dir = std::path::PathBuf::new();
     userdata_dir.push(settings["USERDATA_DIR"].as_str());
 
-    let sink = chimes::FileChimeSink::new(
-        userdata_dir
-    ).await.expect("Could not initialize sink!");
+    let sink = chimes::FileChimeSink::new(userdata_dir)
+        .await
+        .expect("Could not initialize sink!");
 
     let mut resource_dir = std::path::PathBuf::new();
     resource_dir.push(settings["RESOURCE_DIR"].as_str());
 
     let localizer = fluent::FluentLocalizer::new(
-        settings["DEFAULT_LOCALE"].parse::<LanguageIdentifier>().expect("Could not parse default locale!"),
-        resource_dir
-    ).expect("Could not initialize localizer!");
+        settings["DEFAULT_LOCALE"]
+            .parse::<LanguageIdentifier>()
+            .expect("Could not parse default locale!"),
+        resource_dir,
+    )
+    .expect("Could not initialize localizer!");
 
     let sink = Arc::new(sink);
 
     let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
-        .event_handler(
-            handler::Handler::new(
-                sink, 
-                settings["BUS_SIZE"].as_str()
-                                            .parse::<usize>()
-                                            .expect("Could not get bus-size from config"),
-                Duration::from_millis(
-                    settings["CHIME_DURATION_MAX_MS"].as_str()
-                                                     .parse::<u64>()
-                                                     .expect("Could not get file-duration-max from config")
-                ),
-                1000 * settings["FILE_SIZE_LIMIT_KILOBYTES"].as_str()
-                                                                               .parse::<i64>()
-                                                                               .expect("Could not get maximum filesize from config"),
-                settings["COMMAND_ROOT"].clone(),
-                Duration::from_millis(
-                    settings["CONNECTION_TIMEOUT_MILLISECONDS"].as_str()
-                                                               .parse::<u64>()
-                                                               .expect("Could not get connection-timeout-ms from config")
-                ),
-                Mutex::new(
-                    localizer
-                )
-            )
-        )
+        .event_handler(handler::Handler::new(
+            sink,
+            settings["BUS_SIZE"]
+                .as_str()
+                .parse::<usize>()
+                .expect("Could not get bus-size from config"),
+            Duration::from_millis(
+                settings["CHIME_DURATION_MAX_MS"]
+                    .as_str()
+                    .parse::<u64>()
+                    .expect("Could not get file-duration-max from config"),
+            ),
+            1000 * settings["FILE_SIZE_LIMIT_KILOBYTES"]
+                .as_str()
+                .parse::<i64>()
+                .expect("Could not get maximum filesize from config"),
+            settings["COMMAND_ROOT"].clone(),
+            Duration::from_millis(
+                settings["CONNECTION_TIMEOUT_MILLISECONDS"]
+                    .as_str()
+                    .parse::<u64>()
+                    .expect("Could not get connection-timeout-ms from config"),
+            ),
+            Mutex::new(localizer),
+        ))
         .framework(framework)
         .register_songbird()
         .await
@@ -124,9 +120,15 @@ async fn main() {
     let exec_start = Utc::now();
 
     tokio::spawn(async move {
-        let _ = client.start().await.map_err(|why| error!("Client ended: {:#?}", why));
+        let _ = client
+            .start()
+            .await
+            .map_err(|why| error!("Client ended: {:#?}", why));
     });
 
     let _ = tokio::signal::ctrl_c().await;
-    info!("Received interrupt. Session lasted {}. Exiting...", Utc::now() - exec_start);
+    info!(
+        "Received interrupt. Session lasted {}. Exiting...",
+        Utc::now() - exec_start
+    );
 }
