@@ -10,7 +10,7 @@ use fluent_bundle::{FluentArgs, FluentResource, bundle::FluentBundle};
 use unic_langid::LanguageIdentifier;
 
 pub struct FluentLocalizer {
-    fallback_locale : LanguageIdentifier,
+    pub fallback_locale : LanguageIdentifier,
     resources : HashMap<LanguageIdentifier, FluentBundle<FluentResource, IntlLangMemoizer>>
 }
 impl FluentLocalizer {
@@ -63,7 +63,17 @@ impl FluentLocalizer {
         })
     }   
 
-    pub fn localize<'r>(&'r self, lang_id : &str, msg : &str, args : Option<&'r FluentArgs>) -> Cow<str> {
+    pub fn get_available_localizations(&self) -> Vec<String> {
+        let mut localizations = vec![];
+
+        for id in self.resources.keys() {
+            localizations.push(id.to_string());
+        }
+
+        localizations
+    }
+
+    pub fn get_bundle(&self, lang_id : &str) -> &FluentBundle<FluentResource, IntlLangMemoizer> {
         let mut lang_id = match lang_id.parse::<LanguageIdentifier>() {
             Ok(id) => id,
             Err(why) => {
@@ -76,7 +86,11 @@ impl FluentLocalizer {
             error!("No localization for '{lang_id}' available! - Using fallback...");
             lang_id = self.fallback_locale.clone();
         }
-        let bundle = self.resources.get(&lang_id).unwrap();
+        self.resources.get(&lang_id).unwrap()
+    }
+
+    pub fn localize<'r>(&'r self, lang_id : &str, msg : &str, args : Option<&'r FluentArgs>) -> Cow<str> {
+        let bundle = self.get_bundle(lang_id);
 
         let msg = match bundle.get_message(msg) {
             Some(fluent_message) => {

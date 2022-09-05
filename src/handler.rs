@@ -11,7 +11,7 @@ use std::{
 use log::{info, warn, error};
 use tokio::{
     task::{self, JoinHandle},
-    sync::Mutex
+    sync::{Mutex, MutexGuard}
 };
 use serenity::{
     async_trait, 
@@ -29,7 +29,7 @@ use serenity::{
                 }
             }
         }
-    }
+    }, builder::{CreateApplicationCommand, CreateApplicationCommandOption}
 };
 use ffprobe::ffprobe;
 
@@ -279,6 +279,36 @@ impl Handler {
             error!("Error responding to interaction: {:?}", why);
         }
     }
+
+    fn localize_command<'a>(
+        guard : &MutexGuard<fluent::FluentLocalizer>, 
+        available_locales : &[String],
+        cmd : &'a mut CreateApplicationCommand, 
+        msg : &str
+    ) -> &'a mut CreateApplicationCommand {
+        let default_locale = guard.fallback_locale.to_string();
+        let mut cmd = cmd.description(guard.localize(&default_locale, msg, None));
+
+        for loc in available_locales.into_iter().filter(|s| **s != default_locale) {
+            cmd = cmd.description_localized(loc.as_str(), guard.localize(&loc, msg, None));
+        }
+        cmd
+    }
+
+    fn localize_option<'a>(
+        guard : &MutexGuard<fluent::FluentLocalizer>,
+        available_locales : &[String],
+        opt : &'a mut CreateApplicationCommandOption, 
+        msg : &str
+    ) -> &'a mut CreateApplicationCommandOption {
+        let default_locale = guard.fallback_locale.to_string();
+        let mut opt = opt.description(guard.localize(&default_locale, msg, None));
+
+        for loc in available_locales.into_iter().filter(|s| **s != default_locale) {
+            opt = opt.description_localized(loc.as_str(), guard.localize(&loc, msg, None));
+        }
+        opt
+    }
 }
 #[async_trait]
 impl EventHandler for Handler {
@@ -320,45 +350,43 @@ impl EventHandler for Handler {
 
         info!("{} is connected!", ready.user.name);
 
+        let localizer_lock = self.localizer.lock().await;
+        let available_locales = localizer_lock.get_available_localizations();
+
         Command::set_global_application_commands(&ctx.http, |create_app_commands| {
             create_app_commands.create_application_command(|cmd| {
-                cmd.name(self.command_root.as_str()) // 0
-                    .description("Modify your chime")
+
+                Self::localize_command(&localizer_lock, &available_locales, cmd, "base")
+                    .name(self.command_root.as_str()) // 0
                     .create_option(|opt| {
-                        opt.name("clear") // 0
-                            .description("Clear your chime")
-                            .description_localized("de", "Entfernt deinen Willkommenssound")
+                        Self::localize_option(&localizer_lock, &available_locales, opt, "base-clear")
+                            .name("clear") // 0
                             .kind(CommandOptionType::SubCommand)
                     })
                     .create_option(|opt| {
-                        opt.name("set") // 1
-                            .description("Set your chime")
-                            .description_localized("de", "Setzt deinen Willkommenssound")
+                        Self::localize_option(&localizer_lock, &available_locales, opt, "base-set")
+                            .name("set") // 1
                             .kind(CommandOptionType::SubCommandGroup)
                             .create_sub_option(|opt| {
-                                opt.kind(CommandOptionType::SubCommand)
+                                Self::localize_option(&localizer_lock, &available_locales, opt, "base-set-file")
                                     .name("file") // 0
-                                    .description("Set your chime from a file")
-                                    .description_localized("de", "Lädt eine Audiodatei als Willkommenssound hoch.")
-                                    .create_sub_option(|opt|{
-                                        opt.name("attachment") // 0
-                                           .description("Uploads a file as your chime.")
-                                           .description_localized("de", "Füge eine Audiodatei an. Am besten .mp3!")
-                                           .kind(CommandOptionType::Attachment)
-                                           .required(true)
+                                    .kind(CommandOptionType::SubCommand)
+                                    .create_sub_option(|opt| {
+                                        Self::localize_option(&localizer_lock, &available_locales, opt, "base-set-file-attachment")
+                                            .name("attachment") // 0
+                                            .kind(CommandOptionType::Attachment)
+                                            .required(true)
                                     })
                             })
                             .create_sub_option(|opt| {
-                                opt.kind(CommandOptionType::SubCommand)
+                                Self::localize_option(&localizer_lock, &available_locales, opt, "base-set-url")
                                     .name("url") // 1
-                                    .description("Set your chime from an url")
-                                    .description_localized("de", "Gibt dem Bot einen Link zu einer Audiodatei.")
+                                    .kind(CommandOptionType::SubCommand)
                                     .create_sub_option(|opt| {
-                                        opt.name("link") // 0
-                                           .description("Downloads a file as your chime.")
-                                           .description_localized("de", "Link zu einer Audiodatei im Internet. Endet im Idealfall mit '.mp3'!")
-                                           .kind(CommandOptionType::String)
-                                           .required(true)
+                                        Self::localize_option(&localizer_lock, &available_locales, opt, "base-set-url-link")
+                                            .name("link") // 0
+                                            .kind(CommandOptionType::String)
+                                            .required(true)
                                     })  
                             })
                     })
