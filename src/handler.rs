@@ -17,7 +17,7 @@ use serenity::{
     prelude::*,
 };
 use std::{
-    env::temp_dir, fmt::Display, fs::File, os::unix::prelude::FileExt, sync::Arc, time::Duration,
+    env::temp_dir, fmt::Display, fs::File, os::unix::prelude::FileExt, sync::Arc, time::Duration, error::Error,
 };
 use tokio::{
     sync::{Mutex, MutexGuard},
@@ -30,6 +30,7 @@ enum AttachmentError {
     Unreadable,
     Tempfile,
 }
+impl Error for AttachmentError {}
 impl Display for AttachmentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -201,17 +202,12 @@ impl Handler {
 
         match ffprobe(&temp_path) {
             Ok(info) => {
-                let duration = info.format.duration; // seconds
+                let duration = info.format.get_duration(); // seconds
                 if duration.is_none() {
                     return Err(AttachmentError::Unreadable);
                 }
 
-                let parsed = duration.unwrap().parse::<f64>();
-                if parsed.is_err() {
-                    return Err(AttachmentError::Unreadable);
-                }
-
-                let duration = Duration::from_secs_f64(parsed.unwrap());
+                let duration = duration.unwrap();
                 if duration > self.file_duration_max {
                     return Err(AttachmentError::Duration);
                 }
