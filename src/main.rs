@@ -93,6 +93,8 @@ async fn main() {
 
     let database_interface = data::DatabaseInterface::new(mysql_async::Pool::new(db_opts));
 
+    todo!("Ensure db-table exists");
+
     let sink = Arc::new(sink);
 
     let handler = handler::HandlerBuilder::default()
@@ -118,14 +120,12 @@ async fn main() {
                 .parse::<u64>()
                 .expect("Could not get file-duration-max from config"),
         ))
-        .disconnect_timeout(
-            Duration::from_millis(
-                settings["CONNECTION_TIMEOUT_MILLISECONDS"]
-                    .as_str()
-                    .parse::<u64>()
-                    .expect("Could not get connection-timeout-ms from config"),
-            )
-        )
+        .disconnect_timeout(Duration::from_millis(
+            settings["CONNECTION_TIMEOUT_MILLISECONDS"]
+                .as_str()
+                .parse::<u64>()
+                .expect("Could not get connection-timeout-ms from config"),
+        ))
         .build();
 
     let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
@@ -149,4 +149,8 @@ async fn main() {
         "Received interrupt. Session lasted {}. Exiting...",
         Utc::now() - exec_start
     );
+
+    if let Err(why) = database_interface.disconnect().await {
+        error!("Could not disconnect database pool: {why:?}");
+    }
 }

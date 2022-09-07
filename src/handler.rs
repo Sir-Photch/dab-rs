@@ -13,6 +13,7 @@ use serenity::{
             Interaction, InteractionResponseType,
         },
         gateway::Ready,
+        id::GuildId,
     },
     prelude::*,
 };
@@ -113,7 +114,7 @@ impl HandlerBuilder {
 
 #[derive(Clone)]
 struct BusChimePayload {
-    guild_id: u64,
+    guild_id: GuildId,
     channel_id: u64,
     user_id: u64,
     ctx: Context,
@@ -177,15 +178,35 @@ impl Handler {
         })
     }
 
-    async fn spawn_guild_watcher(&self, guild_id: u64) -> JoinHandle<()> {
+    async fn spawn_guild_watcher(&self, guild_id: GuildId) -> JoinHandle<()> {
         let mut task_rx = self.bus.lock().await.add_rx();
         let sink_arc = Arc::clone(&self.sink);
         let flags = Arc::clone(&self.flag_map);
+        let db = self.database.clone();
 
         task::spawn(async move {
             while let Ok(msg) = task_rx.recv() {
                 if msg.guild_id != guild_id {
                     continue;
+                }
+
+                if let Some(blocked_role) = db
+                    .get_guild_details(guild_id.as_u64())
+                    .await
+                    .and_then(|d| d.blocked_role_id)
+                {
+                    let member_is_allowed = msg.guild_id.member(&msg.ctx.http, msg.user_id).await.map_err(|err| {
+                        error!("Watcher for guild '{guild_id}' could not get member details: {err:?}");
+                        err
+                    })
+                    .ok()
+                    .map_or(false, |m| {
+                        m.roles.into_iter().any(|r| *r.as_u64() == blocked_role)
+                    });
+
+                    if !member_is_allowed {
+                        continue;
+                    }
                 }
 
                 let manager = songbird::get(&msg.ctx).await;
@@ -201,7 +222,7 @@ impl Handler {
                     continue;
                 }
 
-                flags.lock().await.insert(guild_id, true);
+                flags.lock().await.insert(guild_id.0, true);
 
                 if let Ok(chime) = sink_arc.get_input(msg.user_id).await {
                     // dont keep mutex-guards for too long
@@ -346,15 +367,15 @@ impl EventHandler for Handler {
         guild: serenity::model::guild::Guild,
         _is_new: bool,
     ) {
-        let guild_id = guild.id.0;
+        let guild_id = guild.id;
 
         let mut watchers = self.watchers.lock().await;
 
-        if watchers.contains_key(&guild_id) {
+        if watchers.contains_key(guild_id.as_u64()) {
             return;
         }
 
-        watchers.insert(guild_id, self.spawn_guild_watcher(guild_id).await);
+        watchers.insert(guild_id.0, self.spawn_guild_watcher(guild_id).await);
 
         let _ = self.latest_context.lock().await.insert(ctx);
     }
@@ -498,7 +519,7 @@ impl EventHandler for Handler {
         let _ = self.latest_context.lock().await.insert(ctx.clone());
 
         self.bus.lock().await.broadcast(BusChimePayload {
-            guild_id: guild_id.0,
+            guild_id,
             channel_id: channel_id.0,
             user_id: user.id.0,
             ctx,
@@ -665,6 +686,83 @@ impl EventHandler for Handler {
                         _ => warn!("Malformed command received {:?}", base_option),
                     }; // match attachment, url
                 } // "set"
+                "admin" => {
+                    if command.guild_id.is_none() {
+                        self.respond(&command, ctx.clone(), false, Some("only-in-guilds"))
+                            .await;
+                        return;
+                    }
+
+                    let invoking_member = command
+                        .guild_id
+                        .unwrap()
+                        .member(&ctx.http, command.user.id)
+                        .await;
+
+                    if let Err(why) = invoking_member {
+                        error!("Could not get invoking member: {why:?}");
+                        self.respond(&command, ctx.clone(), false, None).await;
+                        return;
+                    }
+                    let invoking_member = invoking_member.unwrap();
+
+                    let permissions = invoking_member.permissions(&ctx);
+                    if let Err(why) = permissions {
+                        error!("Could not get permissions of user '{username}': {why:?}");
+                        self.respond(&command, ctx.clone(), false, None).await;
+                        return;
+                    }
+
+                    if !permissions.unwrap().manage_guild() {
+                        warn!(
+                            "User '{username}' tried to execute admin command without permissions."
+                        );
+                        self.respond(&command, ctx.clone(), false, Some("missing-permissions"))
+                            .await;
+                        return;
+                    }
+
+                    let admin_option = &base_option // "admin"
+                        .options
+                        .get(0) // forbid
+                        .unwrap();
+
+                    match admin_option.name.as_str() {
+                        "forbid" => {
+                            if let Some(CommandDataOptionValue::Role(role)) =
+                                &admin_option.options.get(0).unwrap().resolved
+                            {
+                                let guild_id = role.guild_id.as_u64();
+
+                                let mut guild_details = self
+                                    .database
+                                    .get_guild_details(guild_id)
+                                    .await
+                                    .unwrap_or_default();
+
+                                guild_details.id = *role.guild_id.as_u64();
+                                guild_details.blocked_role_id = Some(*role.id.as_u64());
+
+                                if let Err(why) =
+                                    self.database.set_guild_details(guild_details).await
+                                {
+                                    error!("Could not set blocked role '{role}' for guild '{guild_id}': {why:?}");
+                                    self.respond(
+                                        &command,
+                                        ctx.clone(),
+                                        false,
+                                        Some("internal-error"),
+                                    )
+                                    .await;
+                                } else {
+                                    info!("User '{username}' changed blocked role for guild '{guild_id}' to '{role}'");
+                                    self.respond(&command, ctx.clone(), true, None).await;
+                                }
+                            }
+                        }
+                        _ => warn!("Malformed admin-command received {:?}", admin_option),
+                    };
+                }
                 val => warn!("Unknown option received! {}", val),
             }; // match name
         } // if let interaction
