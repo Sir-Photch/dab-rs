@@ -93,14 +93,16 @@ async fn main() {
 
     let database_interface = data::DatabaseInterface::new(mysql_async::Pool::new(db_opts));
 
-    todo!("Ensure db-table exists");
+    database_interface
+        .ensure_table_exists(settings["DB_TABLE"].as_str())
+        .await;
 
     let sink = Arc::new(sink);
 
     let handler = handler::HandlerBuilder::default()
         .command_root(&settings["COMMAND_ROOT"])
         .localizer(localizer)
-        .database(database_interface)
+        .database(database_interface.clone())
         .sink(sink)
         .bus_size(
             settings["BUS_SIZE"]

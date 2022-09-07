@@ -1,7 +1,6 @@
 use log::error;
 use mysql_async::prelude::*;
 use nameof::name_of;
-use std::error::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct GuildDetails {
