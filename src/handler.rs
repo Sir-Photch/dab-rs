@@ -712,8 +712,9 @@ impl EventHandler for Handler {
                         self.respond(&command, ctx.clone(), false, None).await;
                         return;
                     }
+                    let perm = permissions.unwrap();
 
-                    if !permissions.unwrap().manage_guild() {
+                    if !(perm.administrator() || perm.manage_guild()) {
                         warn!(
                             "User '{username}' tried to execute admin command without permissions."
                         );

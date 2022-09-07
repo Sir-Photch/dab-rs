@@ -12,8 +12,7 @@ impl FromRow for GuildDetails {
     where
         Self: Sized,
     {
-        let (id, blocked_role_id) =
-            mysql_async::from_row_opt::<(u64, Option<u64>)>(row)?;
+        let (id, blocked_role_id) = mysql_async::from_row_opt::<(u64, Option<u64>)>(row)?;
 
         Ok(GuildDetails {
             id,
