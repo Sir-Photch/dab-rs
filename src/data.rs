@@ -26,8 +26,7 @@ trait TableSchema {
 impl TableSchema for GuildDetails {
     fn get_schema() -> String {
         format!(
-            r"{} UNSIGNED BIGINT PRIMARY KEY
-              {} UNSIGNED BIGINT",
+            "{} BIGINT UNSIGNED PRIMARY KEY, {} BIGINT UNSIGNED",
             name_of!(id in GuildDetails),
             name_of!(blocked_role_id in GuildDetails)
         )
@@ -50,13 +49,15 @@ impl DatabaseInterface {
             .await
             .expect("Could not get conn to ensure table schema");
 
-        conn.query_drop(format!(
+        let query = format!(
             "CREATE TABLE IF NOT EXISTS {} ({});",
             table_name,
             GuildDetails::get_schema()
-        ))
-        .await
-        .expect("Query ensuring table exists failed!");
+        );
+
+        conn.query_drop(query)
+            .await
+            .expect("Query ensuring table exists failed!");
     }
 
     pub async fn get_guild_details(&self, guild_id: &u64) -> Option<GuildDetails> {
@@ -71,7 +72,7 @@ impl DatabaseInterface {
             .ok()?;
 
         conn.query_first(format!(
-            "SELECT id, chime_duration_max_ms, blocked_role_id FROM GuildDetails WHERE id = {}",
+            "SELECT id, blocked_role_id FROM GuildDetails WHERE id = {}",
             guild_id
         ))
         .await

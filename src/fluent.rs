@@ -99,6 +99,7 @@ impl FluentLocalizer {
         msg: &str,
         args: Option<&'r FluentArgs>,
     ) -> Cow<str> {
+        // TODO this also returns "not translated" when set of translated msgs for each initially available locale are not equal to each other
         let bundle = self.get_bundle(lang_id);
 
         let msg = match bundle.get_message(msg) {

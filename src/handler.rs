@@ -182,31 +182,11 @@ impl Handler {
         let mut task_rx = self.bus.lock().await.add_rx();
         let sink_arc = Arc::clone(&self.sink);
         let flags = Arc::clone(&self.flag_map);
-        let db = self.database.clone();
 
         task::spawn(async move {
             while let Ok(msg) = task_rx.recv() {
                 if msg.guild_id != guild_id {
                     continue;
-                }
-
-                if let Some(blocked_role) = db
-                    .get_guild_details(guild_id.as_u64())
-                    .await
-                    .and_then(|d| d.blocked_role_id)
-                {
-                    let member_is_allowed = msg.guild_id.member(&msg.ctx.http, msg.user_id).await.map_err(|err| {
-                        error!("Watcher for guild '{guild_id}' could not get member details: {err:?}");
-                        err
-                    })
-                    .ok()
-                    .map_or(false, |m| {
-                        m.roles.into_iter().any(|r| *r.as_u64() == blocked_role)
-                    });
-
-                    if !member_is_allowed {
-                        continue;
-                    }
                 }
 
                 let manager = songbird::get(&msg.ctx).await;
@@ -331,7 +311,7 @@ impl Handler {
 
     fn localize_command<'a>(
         guard: &MutexGuard<fluent::FluentLocalizer>,
-        available_locales: &[String],
+        available_locales: &Vec<String>,
         cmd: &'a mut CreateApplicationCommand,
         msg: &str,
     ) -> &'a mut CreateApplicationCommand {
@@ -346,15 +326,18 @@ impl Handler {
 
     fn localize_option<'a>(
         guard: &MutexGuard<fluent::FluentLocalizer>,
-        available_locales: &[String],
+        available_locales: &Vec<String>,
         opt: &'a mut CreateApplicationCommandOption,
         msg: &str,
     ) -> &'a mut CreateApplicationCommandOption {
         let default_locale = guard.fallback_locale.to_string();
         let mut opt = opt.description(guard.localize(&default_locale, msg, None));
 
-        for loc in available_locales.iter().filter(|s| **s != default_locale) {
-            opt = opt.description_localized(loc.as_str(), guard.localize(loc, msg, None));
+        for loc in available_locales
+            .iter()
+            .filter(|s| *s != default_locale.as_str())
+        {
+            opt = opt.description_localized(loc, guard.localize(loc, msg, None));
         }
         opt
     }
@@ -459,6 +442,37 @@ impl EventHandler for Handler {
                                 })
                             })
                     })
+                    .create_option(|opt| {
+                        Self::localize_option(
+                            &localizer_lock,
+                            &available_locales,
+                            opt,
+                            "base-admin",
+                        )
+                        .name("admin")
+                        .kind(CommandOptionType::SubCommandGroup)
+                        .create_sub_option(|opt| {
+                            Self::localize_option(
+                                &localizer_lock,
+                                &available_locales,
+                                opt,
+                                "base-admin-forbid",
+                            )
+                            .name("forbid")
+                            .kind(CommandOptionType::SubCommand)
+                            .create_sub_option(|opt| {
+                                Self::localize_option(
+                                    &localizer_lock,
+                                    &available_locales,
+                                    opt,
+                                    "base-admin-forbid-role",
+                                )
+                                .name("role")
+                                .kind(CommandOptionType::Role)
+                                .required(true)
+                            })
+                        })
+                    })
             })
         })
         .await
@@ -478,17 +492,6 @@ impl EventHandler for Handler {
         old: Option<serenity::model::voice::VoiceState>,
         new: serenity::model::voice::VoiceState,
     ) {
-        let user = new.user_id.to_user(&ctx.http).await;
-        if user.is_err() {
-            error!("Unexpected error, user could not be retrieved! {:?}", user);
-            return;
-        }
-        let user = user.unwrap();
-
-        if user.bot {
-            return;
-        }
-
         if new.channel_id == None {
             return;
         }
@@ -500,10 +503,6 @@ impl EventHandler for Handler {
             }
         }
 
-        if !self.sink.has_data(user.id.0).await {
-            return;
-        }
-
         if new.guild_id == None {
             warn!("Unexpected: user connected to unknown guild");
             return;
@@ -512,6 +511,47 @@ impl EventHandler for Handler {
 
         if let Some(old_guild) = old.and_then(|v| v.guild_id) {
             if old_guild == guild_id {
+                return;
+            }
+        }
+
+        let user = new.user_id.to_user(&ctx.http).await;
+        if user.is_err() {
+            error!("Unexpected error, user could not be retrieved! {:?}", user);
+            return;
+        }
+        let user = user.unwrap();
+
+        if user.bot {
+            return;
+        }
+
+        if !self.sink.has_data(user.id.0).await {
+            return;
+        }
+
+        if let Some(blocked_role) = self
+            .database
+            .get_guild_details(guild_id.as_u64())
+            .await
+            .and_then(|d| d.blocked_role_id)
+        {
+            let member_is_allowed = guild_id
+                .member(&ctx.http, user.id)
+                .await
+                .map_err(|err| {
+                    error!("Watcher for guild '{guild_id}' could not get member details: {err:?}");
+                    err
+                })
+                .ok()
+                // TODO reason about strictness when user details cannot be found
+                // play when possibly blocked but not receivable from database?
+                .map_or(true, |m| {
+                    !m.roles(&ctx)
+                        .map_or(true, |r| r.into_iter().any(|r| r.id.0 == blocked_role))
+                });
+
+            if !member_is_allowed {
                 return;
             }
         }
