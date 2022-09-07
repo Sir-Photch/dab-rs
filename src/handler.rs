@@ -59,7 +59,7 @@ impl HandlerBuilder {
     where
         T: chimes::ChimeSink + 'static,
     {
-        self.sink = Some(sink.clone());
+        self.sink = Some(sink);
         self
     }
     pub fn bus_size(mut self, size: usize) -> HandlerBuilder {
