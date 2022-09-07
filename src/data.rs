@@ -5,7 +5,6 @@ use nameof::name_of;
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct GuildDetails {
     pub id: u64,
-    pub chime_duration_max_ms: Option<u64>,
     pub blocked_role_id: Option<u64>,
 }
 impl FromRow for GuildDetails {
@@ -13,12 +12,11 @@ impl FromRow for GuildDetails {
     where
         Self: Sized,
     {
-        let (id, chime_duration_max_ms, blocked_role_id) =
-            mysql_async::from_row_opt::<(u64, Option<u64>, Option<u64>)>(row)?;
+        let (id, blocked_role_id) =
+            mysql_async::from_row_opt::<(u64, Option<u64>)>(row)?;
 
         Ok(GuildDetails {
             id,
-            chime_duration_max_ms,
             blocked_role_id,
         })
     }
@@ -29,11 +27,9 @@ trait TableSchema {
 impl TableSchema for GuildDetails {
     fn get_schema() -> String {
         format!(
-            r"{} UNSIGNED BIGINT PRIMARY KEY,
-              {} UNSIGNED BIGINT,
+            r"{} UNSIGNED BIGINT PRIMARY KEY
               {} UNSIGNED BIGINT",
             name_of!(id in GuildDetails),
-            name_of!(chime_duration_max_ms in GuildDetails),
             name_of!(blocked_role_id in GuildDetails)
         )
     }
@@ -91,11 +87,8 @@ impl DatabaseInterface {
         let mut conn = self.pool.get_conn().await?;
 
         conn.query_drop(format!(
-            "REPLACE INTO GuildDetails VALUES ({},{},{})",
+            "REPLACE INTO GuildDetails VALUES ({},{})",
             details.id,
-            details
-                .chime_duration_max_ms
-                .map_or("NULL".to_string(), |ms| ms.to_string()),
             details
                 .blocked_role_id
                 .map_or("NULL".to_string(), |id| id.to_string())
