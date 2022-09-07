@@ -1,6 +1,7 @@
-use std::error::Error;
 use log::error;
 use mysql_async::prelude::*;
+use nameof::name_of;
+use std::error::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct GuildDetails {
@@ -23,12 +24,47 @@ impl FromRow for GuildDetails {
         })
     }
 }
+trait TableSchema {
+    fn get_schema() -> String;
+}
+impl TableSchema for GuildDetails {
+    fn get_schema() -> String {
+        format!(
+            r"{} UNSIGNED BIGINT PRIMARY KEY,
+              {} UNSIGNED BIGINT,
+              {} UNSIGNED BIGINT",
+            name_of!(id in GuildDetails),
+            name_of!(chime_duration_max_ms in GuildDetails),
+            name_of!(blocked_role_id in GuildDetails)
+        )
+    }
+}
 
 #[derive(Clone)]
-struct DatabaseInterface {
+pub struct DatabaseInterface {
     pool: mysql_async::Pool,
 }
 impl DatabaseInterface {
+    pub fn new(pool: mysql_async::Pool) -> Self {
+        DatabaseInterface { pool }
+    }
+
+    async fn ensure_table_exists(&self, table_name: &str) {
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .expect("Could not get conn to ensure table schema");
+
+        conn.query_drop(format!(
+            "CREATE TABLE IF NOT EXISTS {} ({});",
+            table_name,
+            GuildDetails::get_schema()
+        ))
+        .await
+        .expect("Query ensuring table exists failed!");
+    }
+
     async fn get_guild_details(&self, guild_id: u64) -> Option<GuildDetails> {
         let mut conn = self
             .pool
@@ -52,9 +88,21 @@ impl DatabaseInterface {
         .ok()?
     }
 
-    async fn set_guild_details(&self, details : GuildDetails) -> Result<(), Box<dyn Error>> {
+    async fn set_guild_details(&self, details: GuildDetails) -> Result<(), Box<dyn Error>> {
         let mut conn = self.pool.get_conn().await?;
 
-        conn.exec_drop(format!("")).await
+        conn.query_drop(format!(
+            "REPLACE INTO GuildDetails VALUES ({},{},{})",
+            details.id,
+            details
+                .chime_duration_max_ms
+                .map_or("NULL".to_string(), |ms| ms.to_string()),
+            details
+                .blocked_role_id
+                .map_or("NULL".to_string(), |id| id.to_string())
+        ))
+        .await?;
+
+        Ok(())
     }
 }

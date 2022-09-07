@@ -17,7 +17,8 @@ use serenity::{
     prelude::*,
 };
 use std::{
-    env::temp_dir, fmt::Display, fs::File, os::unix::prelude::FileExt, sync::Arc, time::Duration, error::Error,
+    env::temp_dir, error::Error, fmt::Display, fs::File, os::unix::prelude::FileExt, sync::Arc,
+    time::Duration,
 };
 use tokio::{
     sync::{Mutex, MutexGuard},
@@ -41,6 +42,74 @@ impl Display for AttachmentError {
         }
     }
 }
+#[derive(Default)]
+pub struct HandlerBuilder {
+    sink: Option<Arc<dyn chimes::ChimeSink>>,
+    bus_size: Option<usize>,
+    file_size_limit_bytes: Option<isize>,
+    file_duration_max: Option<Duration>,
+    command_root: Option<String>,
+    disconnect_timeout: Option<Duration>,
+    localizer: Option<fluent::FluentLocalizer>,
+    database: Option<data::DatabaseInterface>,
+}
+impl HandlerBuilder {
+    pub fn sink<T>(mut self, sink: Arc<T>) -> HandlerBuilder
+    where
+        T: chimes::ChimeSink + 'static,
+    {
+        self.sink = Some(sink.clone());
+        self
+    }
+    pub fn bus_size(mut self, size: usize) -> HandlerBuilder {
+        self.bus_size = Some(size);
+        self
+    }
+    pub fn command_root(mut self, root: &str) -> HandlerBuilder {
+        self.command_root = Some(root.into());
+        self
+    }
+    pub fn disconnect_timeout(mut self, timeout: Duration) -> HandlerBuilder {
+        self.disconnect_timeout = Some(timeout);
+        self
+    }
+    pub fn localizer(mut self, localizer: fluent::FluentLocalizer) -> HandlerBuilder {
+        self.localizer = Some(localizer);
+        self
+    }
+    pub fn database(mut self, database: data::DatabaseInterface) -> HandlerBuilder {
+        self.database = Some(database);
+        self
+    }
+    pub fn file_duration_max(mut self, duration: Duration) -> HandlerBuilder {
+        self.file_duration_max = Some(duration);
+        self
+    }
+    pub fn file_size_limit(mut self, bytes: isize) -> HandlerBuilder {
+        self.file_size_limit_bytes = Some(bytes);
+        self
+    }
+    pub fn build(self) -> Handler {
+        Handler {
+            file_size_limit_bytes: self.file_size_limit_bytes.expect("Expected filesize limit"),
+            command_root: self.command_root.expect("Expected command root"),
+            disconnect_timeout: self
+                .disconnect_timeout
+                .expect("Expected disconnect timeout"),
+            file_duration_max: self
+                .file_duration_max
+                .expect("Expected maximum file duration"),
+            sink: self.sink.expect("Expected chime sink"),
+            watchers: Mutex::new(HashMap::new()),
+            cleanup_watcher: Mutex::new(None),
+            flag_map: Arc::new(Mutex::new(HashMap::new())),
+            bus: Mutex::new(bus::Bus::new(self.bus_size.expect("Expected bus size"))),
+            latest_context: Arc::new(Mutex::new(None)),
+            localizer: Mutex::new(self.localizer.expect("Expected localizer")),
+            database: self.database.expect("Expected database"),
+        }
+    }
+}
 
 #[derive(Clone)]
 struct BusChimePayload {
@@ -49,12 +118,11 @@ struct BusChimePayload {
     user_id: u64,
     ctx: Context,
 }
-
 pub struct Handler {
-    file_size_limit_bytes: i64,
-    file_duration_max: Duration,
+    file_size_limit_bytes: isize,
     command_root: String,
     disconnect_timeout: Duration,
+    file_duration_max: Duration,
 
     sink: Arc<dyn chimes::ChimeSink>,
     watchers: Mutex<HashMap<u64, JoinHandle<()>>>,
@@ -65,33 +133,10 @@ pub struct Handler {
     latest_context: Arc<Mutex<Option<Context>>>,
 
     localizer: Mutex<fluent::FluentLocalizer>,
+
+    database: data::DatabaseInterface,
 }
 impl Handler {
-    // is there a better way?
-    pub fn new(
-        sink: Arc<dyn chimes::ChimeSink>,
-        bus_size: usize,
-        file_duration_max: Duration,
-        file_size_limit_bytes: i64,
-        command_root: String,
-        disconnect_timeout: Duration,
-        localizer: Mutex<fluent::FluentLocalizer>,
-    ) -> Self {
-        Self {
-            file_size_limit_bytes,
-            file_duration_max,
-            command_root,
-            disconnect_timeout,
-            sink: Arc::clone(&sink),
-            watchers: Mutex::new(HashMap::new()),
-            bus: Mutex::new(bus::Bus::new(bus_size)),
-            flag_map: Arc::new(Mutex::new(HashMap::new())),
-            cleanup_watcher: Mutex::new(None),
-            latest_context: Arc::new(Mutex::new(None)),
-            localizer,
-        }
-    }
-
     async fn spawn_cleanup_watcher(&self) -> JoinHandle<()> {
         let timeout = self.disconnect_timeout;
         let flags = Arc::clone(&self.flag_map);
@@ -503,15 +548,15 @@ impl EventHandler for Handler {
                     match &base_option
                         .options
                         .get(0)
-                        .unwrap()
+                        .unwrap() // url, file
                         .options
                         .get(0)
-                        .unwrap()
+                        .unwrap() // attachment, link
                         .resolved
                     {
                         Some(CommandDataOptionValue::Attachment(attachment)) => {
                             if self.file_size_limit_bytes != -1
-                                && attachment.size as i64 > self.file_size_limit_bytes
+                                && attachment.size as isize > self.file_size_limit_bytes
                             {
                                 info!("User {username} supplied large file");
                                 self.respond(&command, ctx, false, Some("file-too-large"))
@@ -573,7 +618,7 @@ impl EventHandler for Handler {
                                 return;
                             }
                             if self.file_size_limit_bytes != -1
-                                && size.unwrap() as i64 > self.file_size_limit_bytes
+                                && size.unwrap() as isize > self.file_size_limit_bytes
                             {
                                 info!("User {username} supplied large file.");
                                 self.respond(&command, ctx, false, Some("file-too-large"))

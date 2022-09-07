@@ -85,34 +85,51 @@ async fn main() {
     )
     .expect("Could not initialize localizer!");
 
+    let db_opts = mysql_async::OptsBuilder::default()
+        .ip_or_hostname(settings["DB_HOSTNAME"].as_str())
+        .user(Some(settings["DB_USERNAME"].as_str()))
+        .pass(Some(settings["DB_PASSWORD"].as_str()))
+        .db_name(Some(settings["DB_NAME"].as_str()));
+
+    let database_interface = data::DatabaseInterface::new(mysql_async::Pool::new(db_opts));
+
     let sink = Arc::new(sink);
 
-    let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
-        .event_handler(handler::Handler::new(
-            sink,
+    let handler = handler::HandlerBuilder::default()
+        .command_root(&settings["COMMAND_ROOT"])
+        .localizer(localizer)
+        .database(database_interface)
+        .sink(sink)
+        .bus_size(
             settings["BUS_SIZE"]
                 .as_str()
                 .parse::<usize>()
                 .expect("Could not get bus-size from config"),
-            Duration::from_millis(
-                settings["CHIME_DURATION_MAX_MS"]
-                    .as_str()
-                    .parse::<u64>()
-                    .expect("Could not get file-duration-max from config"),
-            ),
+        )
+        .file_size_limit(
             1000 * settings["FILE_SIZE_LIMIT_KILOBYTES"]
                 .as_str()
-                .parse::<i64>()
+                .parse::<isize>()
                 .expect("Could not get maximum filesize from config"),
-            settings["COMMAND_ROOT"].clone(),
+        )
+        .file_duration_max(Duration::from_millis(
+            settings["CHIME_DURATION_MAX_MS"]
+                .as_str()
+                .parse::<u64>()
+                .expect("Could not get file-duration-max from config"),
+        ))
+        .disconnect_timeout(
             Duration::from_millis(
                 settings["CONNECTION_TIMEOUT_MILLISECONDS"]
                     .as_str()
                     .parse::<u64>()
                     .expect("Could not get connection-timeout-ms from config"),
-            ),
-            Mutex::new(localizer),
-        ))
+            )
+        )
+        .build();
+
+    let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
+        .event_handler(handler)
         .framework(framework)
         .register_songbird()
         .await
