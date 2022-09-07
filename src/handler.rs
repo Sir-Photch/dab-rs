@@ -4,7 +4,6 @@ use ffprobe::ffprobe;
 use log::{error, info, warn};
 use serenity::{
     async_trait,
-    builder::{CreateApplicationCommand, CreateApplicationCommandOption},
     model::{
         application::interaction::{
             application_command::{
@@ -309,37 +308,23 @@ impl Handler {
         }
     }
 
-    fn localize_command<'a>(
+    fn localize<'a, T>(
         guard: &MutexGuard<fluent::FluentLocalizer>,
-        available_locales: &Vec<String>,
-        cmd: &'a mut CreateApplicationCommand,
+        available_locales: &[String],
+        cmd: &'a mut T,
         msg: &str,
-    ) -> &'a mut CreateApplicationCommand {
+    ) -> &'a mut T
+    where
+        T: fluent::Localizable,
+    {
         let default_locale = guard.fallback_locale.to_string();
-        let mut cmd = cmd.description(guard.localize(&default_locale, msg, None));
+
+        let mut cmd = cmd.localize_default(&guard.localize(&default_locale, msg, None));
 
         for loc in available_locales.iter().filter(|s| **s != default_locale) {
-            cmd = cmd.description_localized(loc.as_str(), guard.localize(loc, msg, None));
+            cmd = cmd.localize(loc.as_str(), &guard.localize(loc, msg, None));
         }
         cmd
-    }
-
-    fn localize_option<'a>(
-        guard: &MutexGuard<fluent::FluentLocalizer>,
-        available_locales: &Vec<String>,
-        opt: &'a mut CreateApplicationCommandOption,
-        msg: &str,
-    ) -> &'a mut CreateApplicationCommandOption {
-        let default_locale = guard.fallback_locale.to_string();
-        let mut opt = opt.description(guard.localize(&default_locale, msg, None));
-
-        for loc in available_locales
-            .iter()
-            .filter(|s| *s != default_locale.as_str())
-        {
-            opt = opt.description_localized(loc, guard.localize(loc, msg, None));
-        }
-        opt
     }
 }
 #[async_trait]
@@ -383,24 +368,19 @@ impl EventHandler for Handler {
 
         Command::set_global_application_commands(&ctx.http, |create_app_commands| {
             create_app_commands.create_application_command(|cmd| {
-                Self::localize_command(&localizer_lock, &available_locales, cmd, "base")
+                Self::localize(&localizer_lock, &available_locales, cmd, "base")
                     .name(self.command_root.as_str()) // 0
                     .create_option(|opt| {
-                        Self::localize_option(
-                            &localizer_lock,
-                            &available_locales,
-                            opt,
-                            "base-clear",
-                        )
-                        .name("clear") // 0
-                        .kind(CommandOptionType::SubCommand)
+                        Self::localize(&localizer_lock, &available_locales, opt, "base-clear")
+                            .name("clear") // 0
+                            .kind(CommandOptionType::SubCommand)
                     })
                     .create_option(|opt| {
-                        Self::localize_option(&localizer_lock, &available_locales, opt, "base-set")
+                        Self::localize(&localizer_lock, &available_locales, opt, "base-set")
                             .name("set") // 1
                             .kind(CommandOptionType::SubCommandGroup)
                             .create_sub_option(|opt| {
-                                Self::localize_option(
+                                Self::localize(
                                     &localizer_lock,
                                     &available_locales,
                                     opt,
@@ -409,7 +389,7 @@ impl EventHandler for Handler {
                                 .name("file") // 0
                                 .kind(CommandOptionType::SubCommand)
                                 .create_sub_option(|opt| {
-                                    Self::localize_option(
+                                    Self::localize(
                                         &localizer_lock,
                                         &available_locales,
                                         opt,
@@ -421,7 +401,7 @@ impl EventHandler for Handler {
                                 })
                             })
                             .create_sub_option(|opt| {
-                                Self::localize_option(
+                                Self::localize(
                                     &localizer_lock,
                                     &available_locales,
                                     opt,
@@ -430,7 +410,7 @@ impl EventHandler for Handler {
                                 .name("url") // 1
                                 .kind(CommandOptionType::SubCommand)
                                 .create_sub_option(|opt| {
-                                    Self::localize_option(
+                                    Self::localize(
                                         &localizer_lock,
                                         &available_locales,
                                         opt,
@@ -443,35 +423,30 @@ impl EventHandler for Handler {
                             })
                     })
                     .create_option(|opt| {
-                        Self::localize_option(
-                            &localizer_lock,
-                            &available_locales,
-                            opt,
-                            "base-admin",
-                        )
-                        .name("admin")
-                        .kind(CommandOptionType::SubCommandGroup)
-                        .create_sub_option(|opt| {
-                            Self::localize_option(
-                                &localizer_lock,
-                                &available_locales,
-                                opt,
-                                "base-admin-forbid",
-                            )
-                            .name("forbid")
-                            .kind(CommandOptionType::SubCommand)
+                        Self::localize(&localizer_lock, &available_locales, opt, "base-admin")
+                            .name("admin")
+                            .kind(CommandOptionType::SubCommandGroup)
                             .create_sub_option(|opt| {
-                                Self::localize_option(
+                                Self::localize(
                                     &localizer_lock,
                                     &available_locales,
                                     opt,
-                                    "base-admin-forbid-role",
+                                    "base-admin-forbid",
                                 )
-                                .name("role")
-                                .kind(CommandOptionType::Role)
-                                .required(true)
+                                .name("forbid")
+                                .kind(CommandOptionType::SubCommand)
+                                .create_sub_option(|opt| {
+                                    Self::localize(
+                                        &localizer_lock,
+                                        &available_locales,
+                                        opt,
+                                        "base-admin-forbid-role",
+                                    )
+                                    .name("role")
+                                    .kind(CommandOptionType::Role)
+                                    .required(true)
+                                })
                             })
-                        })
                     })
             })
         })
