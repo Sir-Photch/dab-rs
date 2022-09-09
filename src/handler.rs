@@ -122,7 +122,7 @@ impl Handler {
                     if *v {
                         *v = false;
                     } else if bird.get(*key).is_some() {
-                        if let Err(why) = bird.leave(*key).await {
+                        if let Err(why) = bird.remove(*key).await {
                             error!("Could not cleanup guild: {}", why);
                         }
                     }
