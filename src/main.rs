@@ -2,6 +2,8 @@ mod chimes;
 mod data;
 mod fluent;
 mod handler;
+mod localizable;
+mod nameable;
 
 use chrono::prelude::*;
 use config::Config;

@@ -309,13 +309,14 @@ impl Handler {
     }
 
     fn localize<'a, T>(
-        guard: &MutexGuard<fluent::FluentLocalizer>,
+        guard: &fluent::FluentLocalizer,
         available_locales: &[String],
         cmd: &'a mut T,
         msg: &str,
+        name: Option<&str>,
     ) -> &'a mut T
     where
-        T: fluent::Localizable,
+        T: localizable::Localizable + nameable::Nameable,
     {
         let default_locale = guard.fallback_locale.to_string();
 
@@ -324,7 +325,11 @@ impl Handler {
         for loc in available_locales.iter().filter(|s| **s != default_locale) {
             cmd = cmd.localize(loc.as_str(), &guard.localize(loc, msg, None));
         }
-        cmd
+
+        cmd.name(match name {
+            Some(n) => n,
+            None => msg.split("-").last().expect("Bad localizable name!"),
+        })
     }
 }
 #[async_trait]
@@ -368,86 +373,89 @@ impl EventHandler for Handler {
 
         Command::set_global_application_commands(&ctx.http, |create_app_commands| {
             create_app_commands.create_application_command(|cmd| {
-                Self::localize(&localizer_lock, &available_locales, cmd, "base")
-                    .name(self.command_root.as_str()) // 0
-                    .create_option(|opt| {
-                        Self::localize(&localizer_lock, &available_locales, opt, "base-clear")
-                            .name("clear") // 0
+                Self::localize(
+                    &localizer_lock,
+                    &available_locales,
+                    cmd,
+                    "base",
+                    Some(self.command_root.as_str()),
+                )
+                .create_option(|opt| {
+                    Self::localize(&localizer_lock, &available_locales, opt, "base-clear", None)
+                        .kind(CommandOptionType::SubCommand)
+                })
+                .create_option(|opt| {
+                    Self::localize(&localizer_lock, &available_locales, opt, "base-set", None)
+                        .kind(CommandOptionType::SubCommandGroup)
+                        .create_sub_option(|opt| {
+                            Self::localize(
+                                &localizer_lock,
+                                &available_locales,
+                                opt,
+                                "base-set-file",
+                                None,
+                            )
                             .kind(CommandOptionType::SubCommand)
-                    })
-                    .create_option(|opt| {
-                        Self::localize(&localizer_lock, &available_locales, opt, "base-set")
-                            .name("set") // 1
-                            .kind(CommandOptionType::SubCommandGroup)
                             .create_sub_option(|opt| {
                                 Self::localize(
                                     &localizer_lock,
                                     &available_locales,
                                     opt,
-                                    "base-set-file",
+                                    "base-set-file-attachment",
+                                    None,
                                 )
-                                .name("file") // 0
-                                .kind(CommandOptionType::SubCommand)
-                                .create_sub_option(|opt| {
-                                    Self::localize(
-                                        &localizer_lock,
-                                        &available_locales,
-                                        opt,
-                                        "base-set-file-attachment",
-                                    )
-                                    .name("attachment") // 0
-                                    .kind(CommandOptionType::Attachment)
-                                    .required(true)
-                                })
+                                .kind(CommandOptionType::Attachment)
+                                .required(true)
                             })
+                        })
+                        .create_sub_option(|opt| {
+                            Self::localize(
+                                &localizer_lock,
+                                &available_locales,
+                                opt,
+                                "base-set-url",
+                                None,
+                            )
+                            .kind(CommandOptionType::SubCommand)
                             .create_sub_option(|opt| {
                                 Self::localize(
                                     &localizer_lock,
                                     &available_locales,
                                     opt,
-                                    "base-set-url",
+                                    "base-set-url-link",
+                                    None,
                                 )
-                                .name("url") // 1
-                                .kind(CommandOptionType::SubCommand)
-                                .create_sub_option(|opt| {
-                                    Self::localize(
-                                        &localizer_lock,
-                                        &available_locales,
-                                        opt,
-                                        "base-set-url-link",
-                                    )
-                                    .name("link") // 0
-                                    .kind(CommandOptionType::String)
-                                    .required(true)
-                                })
+                                .kind(CommandOptionType::String)
+                                .required(true)
                             })
-                    })
-                    .create_option(|opt| {
-                        Self::localize(&localizer_lock, &available_locales, opt, "base-admin")
-                            .name("admin")
-                            .kind(CommandOptionType::SubCommandGroup)
+                        })
+                })
+                .create_option(|opt| {
+                    Self::localize(&localizer_lock, &available_locales, opt, "base-admin", None)
+                        .kind(CommandOptionType::SubCommandGroup)
+                        .create_sub_option(|opt| {
+                            Self::localize(
+                                &localizer_lock,
+                                &available_locales,
+                                opt,
+                                "base-admin-forbid",
+                                None,
+                            )
+                            .name("forbid")
+                            .kind(CommandOptionType::SubCommand)
                             .create_sub_option(|opt| {
                                 Self::localize(
                                     &localizer_lock,
                                     &available_locales,
                                     opt,
-                                    "base-admin-forbid",
+                                    "base-admin-forbid-role",
+                                    None,
                                 )
-                                .name("forbid")
-                                .kind(CommandOptionType::SubCommand)
-                                .create_sub_option(|opt| {
-                                    Self::localize(
-                                        &localizer_lock,
-                                        &available_locales,
-                                        opt,
-                                        "base-admin-forbid-role",
-                                    )
-                                    .name("role")
-                                    .kind(CommandOptionType::Role)
-                                    .required(true)
-                                })
+                                .kind(CommandOptionType::Role)
+                                .required(true)
                             })
-                    })
+                        })
+                })
             })
         })
         .await
