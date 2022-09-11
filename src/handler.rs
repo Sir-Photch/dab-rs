@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{Mutex, MutexGuard},
+    sync::{Mutex},
     task::{self, JoinHandle},
 };
 
@@ -328,7 +328,7 @@ impl Handler {
 
         cmd.name(match name {
             Some(n) => n,
-            None => msg.split("-").last().expect("Bad localizable name!"),
+            None => msg.split('-').last().expect("Bad localizable name!"),
         })
     }
 }
