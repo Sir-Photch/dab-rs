@@ -7,7 +7,8 @@ edition = "2021"
 
 [dependencies.serenity]
 version = "*"
-features = ["http", "builder", "client", "gateway", "cache", "temp_cache", "voice", "standard_framework"]
+default_features = false
+features = ["http", "builder", "client", "gateway", "cache", "temp_cache", "voice"]
 
 [dependencies.tokio]
 version = "*"
@@ -18,6 +19,8 @@ features = ["rt", "rt-multi-thread", "macros", "signal", "time"]
 openssl = { version = "*", features = ["vendored"] }
 
 [dependencies]
+nameof = "*"
+mysql_async = "*"
 unic-langid = "*"
 fluent-bundle = "*"
 intl-memoizer = "*"

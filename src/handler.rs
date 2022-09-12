@@ -4,7 +4,6 @@ use ffprobe::ffprobe;
 use log::{error, info, warn};
 use serenity::{
     async_trait,
-    builder::{CreateApplicationCommand, CreateApplicationCommandOption},
     model::{
         application::interaction::{
             application_command::{
@@ -13,14 +12,16 @@ use serenity::{
             Interaction, InteractionResponseType,
         },
         gateway::Ready,
+        id::GuildId,
     },
     prelude::*,
 };
 use std::{
-    env::temp_dir, fmt::Display, fs::File, os::unix::prelude::FileExt, sync::Arc, time::Duration,
+    env::temp_dir, error::Error, fmt::Display, fs::File, os::unix::prelude::FileExt, sync::Arc,
+    time::Duration,
 };
 use tokio::{
-    sync::{Mutex, MutexGuard},
+    sync::Mutex,
     task::{self, JoinHandle},
 };
 
@@ -30,6 +31,7 @@ enum AttachmentError {
     Unreadable,
     Tempfile,
 }
+impl Error for AttachmentError {}
 impl Display for AttachmentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -40,20 +42,87 @@ impl Display for AttachmentError {
         }
     }
 }
+#[derive(Default)]
+pub struct HandlerBuilder {
+    sink: Option<Arc<dyn chimes::ChimeSink>>,
+    bus_size: Option<usize>,
+    file_size_limit_bytes: Option<isize>,
+    file_duration_max: Option<Duration>,
+    command_root: Option<String>,
+    disconnect_timeout: Option<Duration>,
+    localizer: Option<fluent::FluentLocalizer>,
+    database: Option<data::DatabaseInterface>,
+}
+impl HandlerBuilder {
+    pub fn sink<T>(mut self, sink: Arc<T>) -> HandlerBuilder
+    where
+        T: chimes::ChimeSink + 'static,
+    {
+        self.sink = Some(sink);
+        self
+    }
+    pub fn bus_size(mut self, size: usize) -> HandlerBuilder {
+        self.bus_size = Some(size);
+        self
+    }
+    pub fn command_root(mut self, root: &str) -> HandlerBuilder {
+        self.command_root = Some(root.into());
+        self
+    }
+    pub fn disconnect_timeout(mut self, timeout: Duration) -> HandlerBuilder {
+        self.disconnect_timeout = Some(timeout);
+        self
+    }
+    pub fn localizer(mut self, localizer: fluent::FluentLocalizer) -> HandlerBuilder {
+        self.localizer = Some(localizer);
+        self
+    }
+    pub fn database(mut self, database: data::DatabaseInterface) -> HandlerBuilder {
+        self.database = Some(database);
+        self
+    }
+    pub fn file_duration_max(mut self, duration: Duration) -> HandlerBuilder {
+        self.file_duration_max = Some(duration);
+        self
+    }
+    pub fn file_size_limit(mut self, bytes: isize) -> HandlerBuilder {
+        self.file_size_limit_bytes = Some(bytes);
+        self
+    }
+    pub fn build(self) -> Handler {
+        Handler {
+            file_size_limit_bytes: self.file_size_limit_bytes.expect("Expected filesize limit"),
+            command_root: self.command_root.expect("Expected command root"),
+            disconnect_timeout: self
+                .disconnect_timeout
+                .expect("Expected disconnect timeout"),
+            file_duration_max: self
+                .file_duration_max
+                .expect("Expected maximum file duration"),
+            sink: self.sink.expect("Expected chime sink"),
+            watchers: Mutex::new(HashMap::new()),
+            cleanup_watcher: Mutex::new(None),
+            flag_map: Arc::new(Mutex::new(HashMap::new())),
+            bus: Mutex::new(bus::Bus::new(self.bus_size.expect("Expected bus size"))),
+            latest_context: Arc::new(Mutex::new(None)),
+            localizer: Mutex::new(self.localizer.expect("Expected localizer")),
+            database: self.database.expect("Expected database"),
+        }
+    }
+}
 
 #[derive(Clone)]
 struct BusChimePayload {
-    guild_id: u64,
+    guild_id: GuildId,
     channel_id: u64,
     user_id: u64,
     ctx: Context,
 }
-
 pub struct Handler {
-    file_size_limit_bytes: i64,
-    file_duration_max: Duration,
+    file_size_limit_bytes: isize,
     command_root: String,
     disconnect_timeout: Duration,
+    file_duration_max: Duration,
 
     sink: Arc<dyn chimes::ChimeSink>,
     watchers: Mutex<HashMap<u64, JoinHandle<()>>>,
@@ -64,33 +133,10 @@ pub struct Handler {
     latest_context: Arc<Mutex<Option<Context>>>,
 
     localizer: Mutex<fluent::FluentLocalizer>,
+
+    database: data::DatabaseInterface,
 }
 impl Handler {
-    // is there a better way?
-    pub fn new(
-        sink: Arc<dyn chimes::ChimeSink>,
-        bus_size: usize,
-        file_duration_max: Duration,
-        file_size_limit_bytes: i64,
-        command_root: String,
-        disconnect_timeout: Duration,
-        localizer: Mutex<fluent::FluentLocalizer>,
-    ) -> Self {
-        Self {
-            file_size_limit_bytes,
-            file_duration_max,
-            command_root,
-            disconnect_timeout,
-            sink: Arc::clone(&sink),
-            watchers: Mutex::new(HashMap::new()),
-            bus: Mutex::new(bus::Bus::new(bus_size)),
-            flag_map: Arc::new(Mutex::new(HashMap::new())),
-            cleanup_watcher: Mutex::new(None),
-            latest_context: Arc::new(Mutex::new(None)),
-            localizer,
-        }
-    }
-
     async fn spawn_cleanup_watcher(&self) -> JoinHandle<()> {
         let timeout = self.disconnect_timeout;
         let flags = Arc::clone(&self.flag_map);
@@ -131,7 +177,7 @@ impl Handler {
         })
     }
 
-    async fn spawn_guild_watcher(&self, guild_id: u64) -> JoinHandle<()> {
+    async fn spawn_guild_watcher(&self, guild_id: GuildId) -> JoinHandle<()> {
         let mut task_rx = self.bus.lock().await.add_rx();
         let sink_arc = Arc::clone(&self.sink);
         let flags = Arc::clone(&self.flag_map);
@@ -155,7 +201,7 @@ impl Handler {
                     continue;
                 }
 
-                flags.lock().await.insert(guild_id, true);
+                flags.lock().await.insert(guild_id.0, true);
 
                 if let Ok(chime) = sink_arc.get_input(msg.user_id).await {
                     // dont keep mutex-guards for too long
@@ -201,17 +247,12 @@ impl Handler {
 
         match ffprobe(&temp_path) {
             Ok(info) => {
-                let duration = info.format.duration; // seconds
+                let duration = info.format.get_duration(); // seconds
                 if duration.is_none() {
                     return Err(AttachmentError::Unreadable);
                 }
 
-                let parsed = duration.unwrap().parse::<f64>();
-                if parsed.is_err() {
-                    return Err(AttachmentError::Unreadable);
-                }
-
-                let duration = Duration::from_secs_f64(parsed.unwrap());
+                let duration = duration.unwrap();
                 if duration > self.file_duration_max {
                     return Err(AttachmentError::Duration);
                 }
@@ -267,34 +308,29 @@ impl Handler {
         }
     }
 
-    fn localize_command<'a>(
-        guard: &MutexGuard<fluent::FluentLocalizer>,
+    // TODO move this out of impl Handler
+    fn localize<'a, T>(
+        localizer: &fluent::FluentLocalizer,
         available_locales: &[String],
-        cmd: &'a mut CreateApplicationCommand,
+        cmd: &'a mut T,
         msg: &str,
-    ) -> &'a mut CreateApplicationCommand {
-        let default_locale = guard.fallback_locale.to_string();
-        let mut cmd = cmd.description(guard.localize(&default_locale, msg, None));
+        name: Option<&str>,
+    ) -> &'a mut T
+    where
+        T: localizable::Localizable + nameable::Nameable,
+    {
+        let default_locale = localizer.fallback_locale.to_string();
+
+        let mut cmd = cmd.localize_default(&localizer.localize(&default_locale, msg, None));
 
         for loc in available_locales.iter().filter(|s| **s != default_locale) {
-            cmd = cmd.description_localized(loc.as_str(), guard.localize(loc, msg, None));
+            cmd = cmd.localize(loc.as_str(), &localizer.localize(loc, msg, None));
         }
-        cmd
-    }
 
-    fn localize_option<'a>(
-        guard: &MutexGuard<fluent::FluentLocalizer>,
-        available_locales: &[String],
-        opt: &'a mut CreateApplicationCommandOption,
-        msg: &str,
-    ) -> &'a mut CreateApplicationCommandOption {
-        let default_locale = guard.fallback_locale.to_string();
-        let mut opt = opt.description(guard.localize(&default_locale, msg, None));
-
-        for loc in available_locales.iter().filter(|s| **s != default_locale) {
-            opt = opt.description_localized(loc.as_str(), guard.localize(loc, msg, None));
-        }
-        opt
+        cmd.name(match name {
+            Some(n) => n,
+            None => msg.split('-').last().expect("Bad localizable name!"),
+        })
     }
 }
 #[async_trait]
@@ -305,15 +341,15 @@ impl EventHandler for Handler {
         guild: serenity::model::guild::Guild,
         _is_new: bool,
     ) {
-        let guild_id = guild.id.0;
+        let guild_id = guild.id;
 
         let mut watchers = self.watchers.lock().await;
 
-        if watchers.contains_key(&guild_id) {
+        if watchers.contains_key(guild_id.as_u64()) {
             return;
         }
 
-        watchers.insert(guild_id, self.spawn_guild_watcher(guild_id).await);
+        watchers.insert(guild_id.0, self.spawn_guild_watcher(guild_id).await);
 
         let _ = self.latest_context.lock().await.insert(ctx);
     }
@@ -338,65 +374,89 @@ impl EventHandler for Handler {
 
         Command::set_global_application_commands(&ctx.http, |create_app_commands| {
             create_app_commands.create_application_command(|cmd| {
-                Self::localize_command(&localizer_lock, &available_locales, cmd, "base")
-                    .name(self.command_root.as_str()) // 0
-                    .create_option(|opt| {
-                        Self::localize_option(
-                            &localizer_lock,
-                            &available_locales,
-                            opt,
-                            "base-clear",
-                        )
-                        .name("clear") // 0
+                Self::localize(
+                    &localizer_lock,
+                    &available_locales,
+                    cmd,
+                    "base",
+                    Some(self.command_root.as_str()),
+                )
+                .create_option(|opt| {
+                    Self::localize(&localizer_lock, &available_locales, opt, "base-clear", None)
                         .kind(CommandOptionType::SubCommand)
-                    })
-                    .create_option(|opt| {
-                        Self::localize_option(&localizer_lock, &available_locales, opt, "base-set")
-                            .name("set") // 1
-                            .kind(CommandOptionType::SubCommandGroup)
+                })
+                .create_option(|opt| {
+                    Self::localize(&localizer_lock, &available_locales, opt, "base-set", None)
+                        .kind(CommandOptionType::SubCommandGroup)
+                        .create_sub_option(|opt| {
+                            Self::localize(
+                                &localizer_lock,
+                                &available_locales,
+                                opt,
+                                "base-set-file",
+                                None,
+                            )
+                            .kind(CommandOptionType::SubCommand)
                             .create_sub_option(|opt| {
-                                Self::localize_option(
+                                Self::localize(
                                     &localizer_lock,
                                     &available_locales,
                                     opt,
-                                    "base-set-file",
+                                    "base-set-file-attachment",
+                                    None,
                                 )
-                                .name("file") // 0
-                                .kind(CommandOptionType::SubCommand)
-                                .create_sub_option(|opt| {
-                                    Self::localize_option(
-                                        &localizer_lock,
-                                        &available_locales,
-                                        opt,
-                                        "base-set-file-attachment",
-                                    )
-                                    .name("attachment") // 0
-                                    .kind(CommandOptionType::Attachment)
-                                    .required(true)
-                                })
+                                .kind(CommandOptionType::Attachment)
+                                .required(true)
                             })
+                        })
+                        .create_sub_option(|opt| {
+                            Self::localize(
+                                &localizer_lock,
+                                &available_locales,
+                                opt,
+                                "base-set-url",
+                                None,
+                            )
+                            .kind(CommandOptionType::SubCommand)
                             .create_sub_option(|opt| {
-                                Self::localize_option(
+                                Self::localize(
                                     &localizer_lock,
                                     &available_locales,
                                     opt,
-                                    "base-set-url",
+                                    "base-set-url-link",
+                                    None,
                                 )
-                                .name("url") // 1
-                                .kind(CommandOptionType::SubCommand)
-                                .create_sub_option(|opt| {
-                                    Self::localize_option(
-                                        &localizer_lock,
-                                        &available_locales,
-                                        opt,
-                                        "base-set-url-link",
-                                    )
-                                    .name("link") // 0
-                                    .kind(CommandOptionType::String)
-                                    .required(true)
-                                })
+                                .kind(CommandOptionType::String)
+                                .required(true)
                             })
-                    })
+                        })
+                })
+                .create_option(|opt| {
+                    Self::localize(&localizer_lock, &available_locales, opt, "base-admin", None)
+                        .kind(CommandOptionType::SubCommandGroup)
+                        .create_sub_option(|opt| {
+                            Self::localize(
+                                &localizer_lock,
+                                &available_locales,
+                                opt,
+                                "base-admin-forbid",
+                                None,
+                            )
+                            .name("forbid")
+                            .kind(CommandOptionType::SubCommand)
+                            .create_sub_option(|opt| {
+                                Self::localize(
+                                    &localizer_lock,
+                                    &available_locales,
+                                    opt,
+                                    "base-admin-forbid-role",
+                                    None,
+                                )
+                                .kind(CommandOptionType::Role)
+                                .required(true)
+                            })
+                        })
+                })
             })
         })
         .await
@@ -416,17 +476,6 @@ impl EventHandler for Handler {
         old: Option<serenity::model::voice::VoiceState>,
         new: serenity::model::voice::VoiceState,
     ) {
-        let user = new.user_id.to_user(&ctx.http).await;
-        if user.is_err() {
-            error!("Unexpected error, user could not be retrieved! {:?}", user);
-            return;
-        }
-        let user = user.unwrap();
-
-        if user.bot {
-            return;
-        }
-
         if new.channel_id == None {
             return;
         }
@@ -436,10 +485,6 @@ impl EventHandler for Handler {
             if prev == channel_id {
                 return;
             }
-        }
-
-        if !self.sink.has_data(user.id.0).await {
-            return;
         }
 
         if new.guild_id == None {
@@ -454,10 +499,51 @@ impl EventHandler for Handler {
             }
         }
 
+        let user = new.user_id.to_user(&ctx.http).await;
+        if user.is_err() {
+            error!("Unexpected error, user could not be retrieved! {:?}", user);
+            return;
+        }
+        let user = user.unwrap();
+
+        if user.bot {
+            return;
+        }
+
+        if !self.sink.has_data(user.id.0).await {
+            return;
+        }
+
+        if let Some(blocked_role) = self
+            .database
+            .get_guild_details(guild_id.as_u64())
+            .await
+            .and_then(|d| d.blocked_role_id)
+        {
+            let member_is_allowed = guild_id
+                .member(&ctx.http, user.id)
+                .await
+                .map_err(|err| {
+                    error!("Watcher for guild '{guild_id}' could not get member details: {err:?}");
+                    err
+                })
+                .ok()
+                // TODO reason about strictness when user details cannot be found
+                // play when possibly blocked but not receivable from database?
+                .map_or(true, |m| {
+                    !m.roles(&ctx)
+                        .map_or(true, |r| r.into_iter().any(|r| r.id.0 == blocked_role))
+                });
+
+            if !member_is_allowed {
+                return;
+            }
+        }
+
         let _ = self.latest_context.lock().await.insert(ctx.clone());
 
         self.bus.lock().await.broadcast(BusChimePayload {
-            guild_id: guild_id.0,
+            guild_id,
             channel_id: channel_id.0,
             user_id: user.id.0,
             ctx,
@@ -507,15 +593,15 @@ impl EventHandler for Handler {
                     match &base_option
                         .options
                         .get(0)
-                        .unwrap()
+                        .unwrap() // url, file
                         .options
                         .get(0)
-                        .unwrap()
+                        .unwrap() // attachment, link
                         .resolved
                     {
                         Some(CommandDataOptionValue::Attachment(attachment)) => {
                             if self.file_size_limit_bytes != -1
-                                && attachment.size as i64 > self.file_size_limit_bytes
+                                && attachment.size as isize > self.file_size_limit_bytes
                             {
                                 info!("User {username} supplied large file");
                                 self.respond(&command, ctx, false, Some("file-too-large"))
@@ -577,7 +663,7 @@ impl EventHandler for Handler {
                                 return;
                             }
                             if self.file_size_limit_bytes != -1
-                                && size.unwrap() as i64 > self.file_size_limit_bytes
+                                && size.unwrap() as isize > self.file_size_limit_bytes
                             {
                                 info!("User {username} supplied large file.");
                                 self.respond(&command, ctx, false, Some("file-too-large"))
@@ -624,6 +710,84 @@ impl EventHandler for Handler {
                         _ => warn!("Malformed command received {:?}", base_option),
                     }; // match attachment, url
                 } // "set"
+                "admin" => {
+                    if command.guild_id.is_none() {
+                        self.respond(&command, ctx.clone(), false, Some("only-in-guilds"))
+                            .await;
+                        return;
+                    }
+
+                    let invoking_member = command
+                        .guild_id
+                        .unwrap()
+                        .member(&ctx.http, command.user.id)
+                        .await;
+
+                    if let Err(why) = invoking_member {
+                        error!("Could not get invoking member: {why:?}");
+                        self.respond(&command, ctx.clone(), false, None).await;
+                        return;
+                    }
+                    let invoking_member = invoking_member.unwrap();
+
+                    let permissions = invoking_member.permissions(&ctx);
+                    if let Err(why) = permissions {
+                        error!("Could not get permissions of user '{username}': {why:?}");
+                        self.respond(&command, ctx.clone(), false, None).await;
+                        return;
+                    }
+                    let perm = permissions.unwrap();
+
+                    if !(perm.administrator() || perm.manage_guild()) {
+                        warn!(
+                            "User '{username}' tried to execute admin command without permissions."
+                        );
+                        self.respond(&command, ctx.clone(), false, Some("missing-permissions"))
+                            .await;
+                        return;
+                    }
+
+                    let admin_option = &base_option // "admin"
+                        .options
+                        .get(0) // forbid
+                        .unwrap();
+
+                    match admin_option.name.as_str() {
+                        "forbid" => {
+                            if let Some(CommandDataOptionValue::Role(role)) =
+                                &admin_option.options.get(0).unwrap().resolved
+                            {
+                                let guild_id = role.guild_id.as_u64();
+
+                                let mut guild_details = self
+                                    .database
+                                    .get_guild_details(guild_id)
+                                    .await
+                                    .unwrap_or_default();
+
+                                guild_details.id = *role.guild_id.as_u64();
+                                guild_details.blocked_role_id = Some(*role.id.as_u64());
+
+                                if let Err(why) =
+                                    self.database.set_guild_details(guild_details).await
+                                {
+                                    error!("Could not set blocked role '{role}' for guild '{guild_id}': {why:?}");
+                                    self.respond(
+                                        &command,
+                                        ctx.clone(),
+                                        false,
+                                        Some("internal-error"),
+                                    )
+                                    .await;
+                                } else {
+                                    info!("User '{username}' changed blocked role for guild '{guild_id}' to '{role}'");
+                                    self.respond(&command, ctx.clone(), true, None).await;
+                                }
+                            }
+                        }
+                        _ => warn!("Malformed admin-command received {:?}", admin_option),
+                    };
+                }
                 val => warn!("Unknown option received! {}", val),
             }; // match name
         } // if let interaction

@@ -5,3 +5,6 @@ base-set-file = Lädt eine Audiodatei als Willkommenssound hoch
 base-set-file-attachment = Füge eine Audiodatei an. Am besten .mp3!
 base-set-url = Gibt dem Bot einen Link zu einer Audiodatei
 base-set-url-link = Link zu einer Audiodatei im Internet. Endet im Idealfall mit '.mp3'!
+base-admin = Bot-Konfiguration
+base-admin-forbid = Legt eine Rolle fest, deren Sounds nicht abgespielt werden
+base-admin-forbid-role = Die eindeutige, zu blockende Rolle

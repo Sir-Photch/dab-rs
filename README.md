@@ -11,9 +11,10 @@ A bot that lets users set a chime that is played every time they connect to a ch
 ### Slash-commands
 After setting the name of the base command, the following commands will be available:
 ```
-/base set url    # sets chime of user to given url (that links to an audio-file)
-/base set file   # sets chime of user to given attachment
-/base clear      # clears chime of user, if present
+/base set url       # sets chime of user to given url (that links to an audio-file)
+/base set file       # sets chime of user to given attachment
+/base clear         # clears chime of user, if present
+/base admin forbid  # sets role whose user's chimes are not played
 ```
 ### Behaviour
 If some user connects to a channel, the bot will join that channel and play the chime of the user, if configured. The bot will leave after a configured timespan, if no other user joins.
@@ -59,6 +60,20 @@ For a RPI4 with a 64-bit kernel, use `aarch64-unknown-linux-gnu`. Note that for 
 - [Docker post-installation](https://docs.docker.com/engine/install/linux-postinstall/)
 - [Cross on github](https://github.com/cross-rs/cross)
 
+### Database
+This bot needs a database connection to run. Create a database that is to be used and specify the connection details in `Settings.toml`. You do not need to create any tables, this will be ensured at runtime.
+
+If you don't have a database server set up, you can use the following commands (example for arch-distros):
+
+```console
+$ sudo pacman -S mariadb
+$ systemctl enable mariadb && systemctl start mariadb
+$ sudo mariadb
+MariaDB [(none)]> create database dab_rs;
+MariaDB [(none)]> grant all privileges on dab_rs.* to 'INSERT_USERNAME_HERE'@'localhost' identified by 'INSERT_PASSWORD_HERE';
+MariaDB [(none)]> exit
+```
+
 ### Configuration
 There needs to be a `Settings.toml` inside the directory of the executable. Consider the following template:
 ```toml
@@ -71,6 +86,11 @@ FILE_SIZE_LIMIT_KILOBYTES = 5000
 CONNECTION_TIMEOUT_MILLISECONDS = 10000
 RESOURCE_DIR = "./resources"
 DEFAULT_LOCALE = "en-US"
+DB_HOSTNAME = "localhost"
+DB_USERNAME = "your username"
+DB_PASSWORD = "your password"
+DB_NAME = "dab_rs"
+DB_TABLE = "GuildDetails"
 ```
 - `USERDATA_DIR` specifies the path where the chimes will be saved.
 - `API_TOKEN` is your unique token from discord.
@@ -81,6 +101,7 @@ DEFAULT_LOCALE = "en-US"
 - `CONNECTION_TIMEOUT_MILLISECONDS` is the duration that the bot will remain connected to a channel, after no other user joins a channel in the guild, in milliseconds.
 - `RESOURCE_DIR` is the path to the directory containing the folder structure for localization.
 - `DEFAULT_LOCALE` is the fallback locale that is to be used when translations for a users locale are not available.
+- `DB_*` are the credentials and connection details to the mysql-database that dab-rs will use.
 
 ### Localization
 By default, this repository contains translations in [resources](./resources/). To be able to use them, reference this folder in the configuration for your setup. Localizations are dynamically loaded at startup, as long as the folder names obey the [Unicode Language Identifier](https://unicode.org/reports/tr35/tr35.html#Unicode_language_identifier) standards, e.g. `en-US` or `de`.

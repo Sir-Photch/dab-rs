@@ -1,11 +1,14 @@
 mod chimes;
+mod data;
 mod fluent;
 mod handler;
+mod localizable;
+mod nameable;
 
 use chrono::prelude::*;
 use config::Config;
 use log::{error, info};
-use serenity::{framework::standard::StandardFramework, prelude::*};
+use serenity::prelude::*;
 use songbird::SerenityInit;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use unic_langid::LanguageIdentifier;
@@ -39,7 +42,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .level(log::LevelFilter::Error)
+        .level(log::LevelFilter::Warn)
         .chain(std::io::stderr());
 
     fern::Dispatch::new()
@@ -61,7 +64,6 @@ async fn main() {
         .try_deserialize::<HashMap<String, String>>()
         .expect("Could not deserialize settings!");
 
-    let framework = StandardFramework::new();
     let intents = GatewayIntents::non_privileged()
         | GatewayIntents::MESSAGE_CONTENT
         | GatewayIntents::GUILD_VOICE_STATES;
@@ -84,51 +86,83 @@ async fn main() {
     )
     .expect("Could not initialize localizer!");
 
+    let db_opts = mysql_async::OptsBuilder::default()
+        .ip_or_hostname(settings["DB_HOSTNAME"].as_str())
+        .user(Some(settings["DB_USERNAME"].as_str()))
+        .pass(Some(settings["DB_PASSWORD"].as_str()))
+        .db_name(Some(settings["DB_NAME"].as_str()));
+
+    let database_interface = data::DatabaseInterface::new(mysql_async::Pool::new(db_opts));
+
+    database_interface
+        .ensure_table_exists(settings["DB_TABLE"].as_str())
+        .await;
+
     let sink = Arc::new(sink);
 
-    let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
-        .event_handler(handler::Handler::new(
-            sink,
+    let handler = handler::HandlerBuilder::default()
+        .command_root(&settings["COMMAND_ROOT"])
+        .localizer(localizer)
+        .database(database_interface.clone())
+        .sink(sink)
+        .bus_size(
             settings["BUS_SIZE"]
                 .as_str()
                 .parse::<usize>()
                 .expect("Could not get bus-size from config"),
-            Duration::from_millis(
-                settings["CHIME_DURATION_MAX_MS"]
-                    .as_str()
-                    .parse::<u64>()
-                    .expect("Could not get file-duration-max from config"),
-            ),
+        )
+        .file_size_limit(
             1000 * settings["FILE_SIZE_LIMIT_KILOBYTES"]
                 .as_str()
-                .parse::<i64>()
+                .parse::<isize>()
                 .expect("Could not get maximum filesize from config"),
-            settings["COMMAND_ROOT"].clone(),
-            Duration::from_millis(
-                settings["CONNECTION_TIMEOUT_MILLISECONDS"]
-                    .as_str()
-                    .parse::<u64>()
-                    .expect("Could not get connection-timeout-ms from config"),
-            ),
-            Mutex::new(localizer),
+        )
+        .file_duration_max(Duration::from_millis(
+            settings["CHIME_DURATION_MAX_MS"]
+                .as_str()
+                .parse::<u64>()
+                .expect("Could not get file-duration-max from config"),
         ))
-        .framework(framework)
+        .disconnect_timeout(Duration::from_millis(
+            settings["CONNECTION_TIMEOUT_MILLISECONDS"]
+                .as_str()
+                .parse::<u64>()
+                .expect("Could not get connection-timeout-ms from config"),
+        ))
+        .build();
+
+    let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
+        .event_handler(handler)
         .register_songbird()
         .await
         .expect("Error creating client");
 
     let exec_start = Utc::now();
 
-    tokio::spawn(async move {
-        let _ = client
+    let client_handle = tokio::spawn(async move {
+        client
             .start()
             .await
-            .map_err(|why| error!("Client ended: {:#?}", why));
+            .map_err(|err| error!("Client error: {err:?}"))
     });
 
-    let _ = tokio::signal::ctrl_c().await;
+    if let Err(why) = tokio::signal::ctrl_c().await {
+        error!("ctrl-c error: {why:?}");
+    }
+
     info!(
         "Received interrupt. Session lasted {}. Exiting...",
         Utc::now() - exec_start
     );
+
+    client_handle.abort();
+    if let Err(why) = client_handle.await {
+        if why.is_panic() {
+            error!("==> Client task panicked: {why:?}");
+        }
+    }
+
+    if let Err(why) = database_interface.disconnect().await {
+        error!("Could not disconnect database pool: {why:?}");
+    }
 }

@@ -6,3 +6,5 @@ bad-url = Mit dieser URL kann ich nix anfangen. 🤔
 duration-exceeded = Das dauert mir zu lange! 🙄
 data-unreadable = Diese Daten kann ich nicht entziffern. 🧐
 internal-error = Hoppla! Es ist ein interner Fehler aufgetreten... 🤕
+only-in-guilds = Das funktioniert nur auf Servern! ☝
+missing-permissions = Wer denkst du wer du bist? 👿

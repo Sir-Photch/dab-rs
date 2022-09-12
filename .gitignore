@@ -4,4 +4,3 @@ Settings.toml
 /.vscode
 upload.sh
 activity.log
-Cargo.lock
