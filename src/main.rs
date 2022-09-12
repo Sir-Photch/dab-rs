@@ -42,7 +42,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .level(log::LevelFilter::Error)
+        .level(log::LevelFilter::Warn)
         .chain(std::io::stderr());
 
     fern::Dispatch::new()
