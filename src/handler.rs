@@ -308,8 +308,9 @@ impl Handler {
         }
     }
 
+    // TODO move this out of impl Handler
     fn localize<'a, T>(
-        guard: &fluent::FluentLocalizer,
+        localizer: &fluent::FluentLocalizer,
         available_locales: &[String],
         cmd: &'a mut T,
         msg: &str,
@@ -318,12 +319,12 @@ impl Handler {
     where
         T: localizable::Localizable + nameable::Nameable,
     {
-        let default_locale = guard.fallback_locale.to_string();
+        let default_locale = localizer.fallback_locale.to_string();
 
-        let mut cmd = cmd.localize_default(&guard.localize(&default_locale, msg, None));
+        let mut cmd = cmd.localize_default(&localizer.localize(&default_locale, msg, None));
 
         for loc in available_locales.iter().filter(|s| **s != default_locale) {
-            cmd = cmd.localize(loc.as_str(), &guard.localize(loc, msg, None));
+            cmd = cmd.localize(loc.as_str(), &localizer.localize(loc, msg, None));
         }
 
         cmd.name(match name {
