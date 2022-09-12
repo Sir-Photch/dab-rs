@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{Mutex},
+    sync::Mutex,
     task::{self, JoinHandle},
 };
 
