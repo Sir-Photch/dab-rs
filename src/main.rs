@@ -8,7 +8,7 @@ mod nameable;
 use chrono::prelude::*;
 use config::Config;
 use log::{error, info};
-use serenity::{framework::standard::StandardFramework, prelude::*};
+use serenity::prelude::*;
 use songbird::SerenityInit;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use unic_langid::LanguageIdentifier;
@@ -64,7 +64,6 @@ async fn main() {
         .try_deserialize::<HashMap<String, String>>()
         .expect("Could not deserialize settings!");
 
-    let framework = StandardFramework::new();
     let intents = GatewayIntents::non_privileged()
         | GatewayIntents::MESSAGE_CONTENT
         | GatewayIntents::GUILD_VOICE_STATES;
@@ -134,25 +133,34 @@ async fn main() {
 
     let mut client = Client::builder(settings["API_TOKEN"].as_str(), intents)
         .event_handler(handler)
-        .framework(framework)
         .register_songbird()
         .await
         .expect("Error creating client");
 
     let exec_start = Utc::now();
 
-    tokio::spawn(async move {
-        let _ = client
+    let client_handle = tokio::spawn(async move {
+        client
             .start()
             .await
-            .map_err(|why| error!("Client ended: {:#?}", why));
+            .map_err(|err| error!("Client error: {err:?}"))
     });
 
-    let _ = tokio::signal::ctrl_c().await;
+    if let Err(why) = tokio::signal::ctrl_c().await {
+        error!("ctrl-c error: {why:?}");
+    }
+
     info!(
         "Received interrupt. Session lasted {}. Exiting...",
         Utc::now() - exec_start
     );
+
+    client_handle.abort();
+    if let Err(why) = client_handle.await {
+        if why.is_panic() {
+            error!("==> Client task panicked: {why:?}");
+        }
+    }
 
     if let Err(why) = database_interface.disconnect().await {
         error!("Could not disconnect database pool: {why:?}");
