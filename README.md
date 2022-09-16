@@ -12,7 +12,7 @@ A bot that lets users set a chime that is played every time they connect to a ch
 After setting the name of the base command, the following commands will be available:
 ```
 /base set url       # sets chime of user to given url (that links to an audio-file)
-/base set file       # sets chime of user to given attachment
+/base set file      # sets chime of user to given attachment
 /base clear         # clears chime of user, if present
 /base admin forbid  # sets role whose user's chimes are not played
 ```
