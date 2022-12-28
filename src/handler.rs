@@ -476,7 +476,7 @@ impl EventHandler for Handler {
         old: Option<serenity::model::voice::VoiceState>,
         new: serenity::model::voice::VoiceState,
     ) {
-        if new.channel_id == None {
+        if new.channel_id.is_none() {
             return;
         }
         let channel_id = new.channel_id.unwrap();
@@ -487,7 +487,7 @@ impl EventHandler for Handler {
             }
         }
 
-        if new.guild_id == None {
+        if new.guild_id.is_none() {
             warn!("Unexpected: user connected to unknown guild");
             return;
         }
