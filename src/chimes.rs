@@ -69,7 +69,7 @@ impl FileChimeSink {
 
             if let Some(prefix) = path.file_stem() {
                 let user_id = prefix.to_str().and_then(|s| s.parse::<u64>().ok());
-                if user_id == None {
+                if user_id.is_none() {
                     warn!("Invalid file in directory: {:#?}", prefix);
                     continue;
                 }
