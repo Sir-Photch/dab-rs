@@ -110,6 +110,20 @@ DB_TABLE = "GuildDetails"
 ### Localization
 By default, this repository contains translations in [resources](./resources/). To be able to use them, reference this folder in the configuration for your setup. Localizations are dynamically loaded at startup, as long as the folder names obey the [Unicode Language Identifier](https://unicode.org/reports/tr35/tr35.html#Unicode_language_identifier) standards, e.g. `en-US` or `de`.
 
+### Systemd service
+Consider this unit as an example for a systemd-service. Depending on your distro, you may place it in `/etc/systemd/system`:
+```console
+[Unit]
+Description=dab-rs Discord Bot
+Wants=network-online.target
+After=network-online.target
+[Service]
+WorkingDirectory=/home/chris/dab-rs.d
+ExecStart=/home/chris/dab-rs.d/dab-rs
+[Install]
+WantedBy=multi-user.target
+```
+Note that you may need to modify `WorkingDirectory` and `ExecStart` based on your setup.
 
 ## Known issues
 
