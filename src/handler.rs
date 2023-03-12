@@ -351,7 +351,7 @@ impl EventHandler for Handler {
 
         watchers.insert(guild_id.0, self.spawn_guild_watcher(guild_id).await);
 
-        let _ = self.latest_context.lock().await.insert(ctx);
+        _ = self.latest_context.lock().await.insert(ctx);
     }
 
     async fn ready(&self, ctx: Context, ready: Ready) {
@@ -462,8 +462,8 @@ impl EventHandler for Handler {
         .await
         .expect("could not set commands!");
 
-        let _ = self.latest_context.lock().await.insert(ctx);
-        let _ = self
+        _ = self.latest_context.lock().await.insert(ctx);
+        _ = self
             .cleanup_watcher
             .lock()
             .await
@@ -540,7 +540,7 @@ impl EventHandler for Handler {
             }
         }
 
-        let _ = self.latest_context.lock().await.insert(ctx.clone());
+        _ = self.latest_context.lock().await.insert(ctx.clone());
 
         self.bus.lock().await.broadcast(BusChimePayload {
             guild_id,
@@ -678,13 +678,8 @@ impl EventHandler for Handler {
                                     "Could not download for user {username} from {url_str} : {:?}",
                                     err
                                 );
-                                self.respond(
-                                    &command,
-                                    ctx,
-                                    false,
-                                    Some(format!("{}", err).as_str()),
-                                )
-                                .await;
+                                self.respond(&command, ctx, false, Some(format!("{err}").as_str()))
+                                    .await;
                                 return;
                             }
                             let data = download.unwrap();
@@ -694,13 +689,8 @@ impl EventHandler for Handler {
                                 .await
                             {
                                 info!("Checking chime data for user {username} failed: {:?}", why);
-                                self.respond(
-                                    &command,
-                                    ctx,
-                                    false,
-                                    Some(format!("{}", why).as_str()),
-                                )
-                                .await;
+                                self.respond(&command, ctx, false, Some(format!("{why}").as_str()))
+                                    .await;
                                 return;
                             }
 
@@ -792,6 +782,6 @@ impl EventHandler for Handler {
             }; // match name
         } // if let interaction
 
-        let _ = self.latest_context.lock().await.insert(ctx);
+        _ = self.latest_context.lock().await.insert(ctx);
     }
 }

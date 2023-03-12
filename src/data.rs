@@ -72,8 +72,7 @@ impl DatabaseInterface {
             .ok()?;
 
         conn.query_first(format!(
-            "SELECT id, blocked_role_id FROM GuildDetails WHERE id = {}",
-            guild_id
+            "SELECT id, blocked_role_id FROM GuildDetails WHERE id = {guild_id}"
         ))
         .await
         .map_err(|err| {
