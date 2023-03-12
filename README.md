@@ -114,14 +114,14 @@ By default, this repository contains translations in [resources](./resources/). 
 Consider this unit as an example for a systemd-service. Depending on your distro, you may place it in `/etc/systemd/system`:
 ```console
 dab-rs.service:
---------------------------
+--------------------------------------
 [Unit]
 Description=dab-rs Discord Bot
 Wants=network-online.target
 After=network-online.target
 [Service]
-WorkingDirectory=/home/chris/dab-rs.d
-ExecStart=/home/chris/dab-rs.d/dab-rs
+WorkingDirectory=/path/to/working/directory
+ExecStart=/path/to/working/directory/dab-rs
 [Install]
 WantedBy=multi-user.target
 ```
