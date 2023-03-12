@@ -63,15 +63,13 @@ For a RPI4 with a 64-bit kernel, use `aarch64-unknown-linux-gnu`. Note that for 
 ### Database
 This bot needs a database connection to run. Create a database that is to be used and specify the connection details in `Settings.toml`. You do not need to create any tables, this will be ensured at runtime.
 
-If you don't have a database server set up, you can use the following commands (example for arch-distros):
+You need to setup a postgres-database though:
 
-```console
-$ sudo pacman -S mariadb
-$ systemctl enable mariadb && systemctl start mariadb
-$ sudo mariadb
-MariaDB [(none)]> create database dab_rs;
-MariaDB [(none)]> grant all privileges on dab_rs.* to 'INSERT_USERNAME_HERE'@'localhost' identified by 'INSERT_PASSWORD_HERE';
-MariaDB [(none)]> exit
+```sql
+create database dab_rs;
+create user INSERT_USERNAME_HERE with password 'INSERT_PASSWORD_HERE';
+grant all privileges on database dab_rs to INSERT_USERNAME_HERE;
+alter database dab_rs owner to INSERT_USERNAME_HERE;
 ```
 
 ### Configuration
