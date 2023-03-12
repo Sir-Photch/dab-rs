@@ -19,6 +19,7 @@ features = ["rt", "rt-multi-thread", "macros", "signal", "time"]
 openssl = { version = "*", features = ["vendored"] }
 
 [dependencies]
+getopts = "*"
 nameof = "*"
 mysql_async = "*"
 unic-langid = "*"

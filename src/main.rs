@@ -1,3 +1,4 @@
+extern crate getopts;
 mod chimes;
 mod data;
 mod fluent;
@@ -7,13 +8,14 @@ mod nameable;
 
 use chrono::prelude::*;
 use config::Config;
+use getopts::Options;
 use log::{error, info};
 use serenity::prelude::*;
 use songbird::SerenityInit;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, sync::Arc, time::Duration};
 use unic_langid::LanguageIdentifier;
 
-fn setup_logger() -> Result<(), fern::InitError> {
+fn setup_logger(verbose: bool) -> Result<(), fern::InitError> {
     let colors = fern::colors::ColoredLevelConfig::new().error(fern::colors::Color::BrightRed);
 
     let file_config = fern::Dispatch::new()
@@ -42,8 +44,12 @@ fn setup_logger() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .level(log::LevelFilter::Warn)
-        .chain(std::io::stderr());
+        .level(if verbose {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Warn
+        })
+        .chain(std::io::stdout());
 
     fern::Dispatch::new()
         .chain(file_config)
@@ -55,7 +61,16 @@ fn setup_logger() -> Result<(), fern::InitError> {
 
 #[tokio::main]
 async fn main() {
-    setup_logger().expect("Could not setup logger!");
+    let args: Vec<String> = env::args().collect();
+
+    let mut opts = Options::new();
+    opts.optflag("v", "verbose", "Verbose logging in stdout");
+    let verbose = opts
+        .parse(&args[1..])
+        .expect("Bad arguments!")
+        .opt_present("v");
+
+    setup_logger(verbose).expect("Could not setup logger!");
 
     let settings = Config::builder()
         .add_source(config::File::with_name("Settings"))

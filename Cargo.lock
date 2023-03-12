@@ -608,6 +608,7 @@ dependencies = [
  "ffprobe",
  "fluent-bundle",
  "fs_extra",
+ "getopts",
  "intl-memoizer",
  "log",
  "mysql_async",
@@ -1035,6 +1036,15 @@ checksum = "bff49e947297f3312447abdca79f45f4738097cc82b06e72054d2223f601f1b9"
 dependencies = [
  "typenum",
  "version_check",
+]
+
+[[package]]
+name = "getopts"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14dbbfd5c71d70241ecf9e6f13737f7b5ce823821063188d7e46c41d371eebd5"
+dependencies = [
+ "unicode-width",
 ]
 
 [[package]]
