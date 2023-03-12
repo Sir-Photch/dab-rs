@@ -103,5 +103,14 @@ DB_TABLE = "GuildDetails"
 - `DEFAULT_LOCALE` is the fallback locale that is to be used when translations for a users locale are not available.
 - `DB_*` are the credentials and connection details to the mysql-database that dab-rs will use.
 
+#### Commandline options
+
+- `-v`, `--verbose`: enables verbose logging in stdout
+
 ### Localization
 By default, this repository contains translations in [resources](./resources/). To be able to use them, reference this folder in the configuration for your setup. Localizations are dynamically loaded at startup, as long as the folder names obey the [Unicode Language Identifier](https://unicode.org/reports/tr35/tr35.html#Unicode_language_identifier) standards, e.g. `en-US` or `de`.
+
+
+## Known issues
+
+Won't work on systems with only one CPU-core.
