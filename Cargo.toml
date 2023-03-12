@@ -22,7 +22,7 @@ openssl = { version = "*", features = ["vendored"] }
 [dependencies]
 getopts = "*"
 nameof = "*"
-mysql_async = "*"
+tokio-postgres = "*"
 unic-langid = "*"
 fluent-bundle = "*"
 intl-memoizer = "*"

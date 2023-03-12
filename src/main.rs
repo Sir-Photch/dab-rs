@@ -101,24 +101,34 @@ async fn main() {
     )
     .expect("Could not initialize localizer!");
 
-    let db_opts = mysql_async::OptsBuilder::default()
-        .ip_or_hostname(settings["DB_HOSTNAME"].as_str())
-        .user(Some(settings["DB_USERNAME"].as_str()))
-        .pass(Some(settings["DB_PASSWORD"].as_str()))
-        .db_name(Some(settings["DB_NAME"].as_str()));
+    let mut config = tokio_postgres::config::Config::new();
+    config
+        .host(settings["DB_HOSTNAME"].as_str())
+        .user(settings["DB_USERNAME"].as_str())
+        .password(settings["DB_PASSWORD"].as_str())
+        .dbname(settings["DB_NAME"].as_str());
 
-    let database_interface = data::DatabaseInterface::new(mysql_async::Pool::new(db_opts));
+    let (client, connection) = config
+        .connect(tokio_postgres::NoTls)
+        .await
+        .expect("Bad database config");
 
-    database_interface
-        .ensure_table_exists(settings["DB_TABLE"].as_str())
-        .await;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            error!("Could not connect to database: {e:?}");
+        }
+    });
+
+    let database_interface = data::DatabaseInterface::new(client, settings["DB_TABLE"].to_owned());
+
+    database_interface.ensure_table_exists().await;
 
     let sink = Arc::new(sink);
 
     let handler = handler::HandlerBuilder::default()
         .command_root(&settings["COMMAND_ROOT"])
         .localizer(localizer)
-        .database(database_interface.clone())
+        .database(database_interface)
         .sink(sink)
         .bus_size(
             settings["BUS_SIZE"]
@@ -175,9 +185,5 @@ async fn main() {
         if why.is_panic() {
             error!("==> Client task panicked: {why:?}");
         }
-    }
-
-    if let Err(why) = database_interface.disconnect().await {
-        error!("Could not disconnect database pool: {why:?}");
     }
 }
