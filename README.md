@@ -116,7 +116,8 @@ dab-rs.service:
 [Unit]
 Description=dab-rs Discord Bot
 Wants=network-online.target
-After=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
 [Service]
 WorkingDirectory=/path/to/working/directory
 ExecStart=/path/to/working/directory/dab-rs
