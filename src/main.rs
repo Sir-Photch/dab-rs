@@ -34,11 +34,10 @@ fn setup_logger(verbose: bool) -> Result<(), fern::InitError> {
         .level_for("tracing", log::LevelFilter::Warn)
         .chain(fern::log_file("activity.log")?);
 
-    let stderr_config = fern::Dispatch::new()
+    let stdout_config = fern::Dispatch::new()
         .format(move |out, message, record| {
             out.finish(format_args!(
-                "{} | [{}][{}] -- {}",
-                Local::now().format("%H:%M:%S"),
+                "[{}][{}] -- {}",
                 colors.color(record.level()),
                 record.target(),
                 message
@@ -53,7 +52,7 @@ fn setup_logger(verbose: bool) -> Result<(), fern::InitError> {
 
     fern::Dispatch::new()
         .chain(file_config)
-        .chain(stderr_config)
+        .chain(stdout_config)
         .apply()?;
 
     Ok(())
