@@ -104,6 +104,7 @@ DB_TABLE = "GuildDetails"
 #### Commandline options
 
 - `-v`, `--verbose`: enables verbose logging in stdout
+- `-b`, `--beats`: explicitly enables verbose heartbeat logging
 
 ### Localization
 By default, this repository contains translations in [resources](./resources/). To be able to use them, reference this folder in the configuration for your setup. Localizations are dynamically loaded at startup, as long as the folder names obey the [Unicode Language Identifier](https://unicode.org/reports/tr35/tr35.html#Unicode_language_identifier) standards, e.g. `en-US` or `de`.
