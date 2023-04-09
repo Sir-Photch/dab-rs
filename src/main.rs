@@ -48,6 +48,7 @@ fn setup_logger(verbose: bool) -> Result<(), fern::InitError> {
         } else {
             log::LevelFilter::Warn
         })
+        .level_for("tracing", log::LevelFilter::Warn)
         .chain(std::io::stdout());
 
     fern::Dispatch::new()
