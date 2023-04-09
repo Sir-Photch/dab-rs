@@ -15,7 +15,7 @@ use songbird::SerenityInit;
 use std::{collections::HashMap, env, sync::Arc, time::Duration};
 use unic_langid::LanguageIdentifier;
 
-fn setup_logger(verbose: bool) -> Result<(), fern::InitError> {
+fn setup_logger(verbose: bool, heartbeat: bool) -> Result<(), fern::InitError> {
     let colors = fern::colors::ColoredLevelConfig::new().error(fern::colors::Color::BrightRed);
 
     let file_config = fern::Dispatch::new()
@@ -48,7 +48,14 @@ fn setup_logger(verbose: bool) -> Result<(), fern::InitError> {
         } else {
             log::LevelFilter::Warn
         })
-        .level_for("tracing", log::LevelFilter::Warn)
+        .level_for(
+            "tracing",
+            if heartbeat {
+                log::LevelFilter::Debug
+            } else {
+                log::LevelFilter::Warn
+            },
+        )
         .chain(std::io::stdout());
 
     fern::Dispatch::new()
@@ -65,12 +72,10 @@ async fn main() {
 
     let mut opts = Options::new();
     opts.optflag("v", "verbose", "Verbose logging in stdout");
-    let verbose = opts
-        .parse(&args[1..])
-        .expect("Bad arguments!")
-        .opt_present("v");
+    opts.optflag("b", "beats", "Heartbeat logging in stdout");
+    let opts = opts.parse(&args[1..]).expect("Bad arguments!");
 
-    setup_logger(verbose).expect("Could not setup logger!");
+    setup_logger(opts.opt_present("v"), opts.opt_present("b")).expect("Could not setup logger!");
 
     let settings = Config::builder()
         .add_source(config::File::with_name("Settings"))

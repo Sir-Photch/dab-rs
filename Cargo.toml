@@ -29,7 +29,7 @@ intl-memoizer = "*"
 log = "*"
 fern = { version = "*", features = ["colored"] }
 chrono = "*"
-songbird = "*"
+songbird = { git = "https://github.com/serenity-rs/songbird.git" }
 url = "*"
 config = "*"
 async-trait = "*"
