@@ -1,6 +1,6 @@
 [package]
 name = "dab-rs"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [profile.release]
@@ -29,7 +29,7 @@ intl-memoizer = "*"
 log = "*"
 fern = { version = "*", features = ["colored"] }
 chrono = "*"
-songbird = { git = "https://github.com/serenity-rs/songbird.git" }
+songbird = "*" # { git = "https://github.com/serenity-rs/songbird.git" }
 url = "*"
 config = "*"
 async-trait = "*"
