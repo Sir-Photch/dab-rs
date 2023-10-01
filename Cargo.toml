@@ -30,6 +30,7 @@ features = [
     'cache',
     'temp_cache',
     'voice',
+    'native_tls_backend',
 ]
 version = '0.11.6'
 

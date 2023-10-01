@@ -28,13 +28,15 @@ pub struct FileChimeSink {
 }
 impl FileChimeSink {
     pub async fn new(mut dir: std::path::PathBuf) -> Result<Self, ChimeSinkError> {
-        if dir.exists() && dir.is_file() {
+        if dir.is_file() {
             return Err(ChimeSinkError::DirError);
         }
 
-        if let Err(why) = std::fs::create_dir_all(&dir) {
-            error!("Could not ensure directory at {} : {}", dir.display(), why);
-            return Err(ChimeSinkError::DirError);
+        if !dir.is_dir() {
+            if let Err(why) = std::fs::create_dir_all(&dir) {
+                error!("Could not ensure directory at {} : {}", dir.display(), why);
+                return Err(ChimeSinkError::DirError);
+            }
         }
 
         if dir.is_relative() {
@@ -120,6 +122,35 @@ impl ChimeSink for FileChimeSink {
 
         match fs_extra::file::move_file(&file, &new_path, &CopyOptions::default()) {
             Ok(_) => {
+                #[cfg(unix)]
+                {
+                    use std::{fs, os::unix::fs::PermissionsExt};
+                    if let Some(parent) = new_path.parent() {
+                        match fs::metadata(parent) {
+                            Ok(metadata) => {
+                                // remove x flag while respecting parent dir
+                                let mode = metadata.permissions().mode() & !0o111;
+                                if let Err(why) =
+                                    fs::set_permissions(&new_path, fs::Permissions::from_mode(mode))
+                                {
+                                    warn!(
+                                        "Could not set permissions of file {} to {}: {}",
+                                        new_path.display(),
+                                        mode,
+                                        why
+                                    );
+                                }
+                            }
+                            Err(why) => warn!(
+                                "Could not retrieve metadata for path {}: {}",
+                                parent.display(),
+                                why
+                            ),
+                        }
+                    } else {
+                        warn!("File {} has no parent!", new_path.display())
+                    }
+                }
                 self.chimes.lock().await.insert(user_id, new_path);
                 Ok(())
             }
