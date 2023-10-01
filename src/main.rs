@@ -9,7 +9,7 @@ mod nameable;
 use chrono::prelude::*;
 use config::Config;
 use getopts::Options;
-use log::{error, info};
+use log::error;
 use serenity::prelude::*;
 use songbird::SerenityInit;
 use std::{collections::HashMap, env, sync::Arc, time::Duration};
@@ -177,8 +177,6 @@ async fn main() {
         .await
         .expect("Error creating client");
 
-    let exec_start = Utc::now();
-    
     if let Err(why) = client.start().await {
         error!("Client error: {why:?}");
     }
