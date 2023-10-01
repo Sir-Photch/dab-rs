@@ -77,7 +77,11 @@ async fn main() {
     let opts = opts.parse(&args[1..]).expect("Bad arguments!");
 
     let settings = Config::builder()
-        .add_source(config::File::with_name(&opts.opt_get_default("c", String::from("Settings.toml")).unwrap()))
+        .add_source(config::File::with_name(
+            &opts
+                .opt_get_default("c", String::from("Settings.toml"))
+                .unwrap(),
+        ))
         .build()
         .expect("Could not build settings!")
         .try_deserialize::<HashMap<String, String>>()

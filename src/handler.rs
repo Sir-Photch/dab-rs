@@ -289,13 +289,13 @@ impl Handler {
                 }
             }
         };
+
         let msg = self
             .localizer
             .lock()
             .await
             .localize(&command.locale, msg, None)
             .into_owned();
-
         if let Err(why) = command
             .create_interaction_response(&ctx.http, |response| {
                 response
@@ -462,6 +462,8 @@ impl EventHandler for Handler {
         .await
         .expect("could not set commands!");
 
+        drop(localizer_lock);
+
         _ = self.latest_context.lock().await.insert(ctx);
         _ = self
             .cleanup_watcher
@@ -581,7 +583,7 @@ impl EventHandler for Handler {
                 "clear" => {
                     self.sink.clear_data(user).await;
                     info!("User {username} cleared his chime");
-                    self.respond(&command, ctx.clone(), true, None).await;
+                    self.respond(&command, ctx, true, None).await;
                 }
                 "set" => {
                     if base_option.options.len() != 1
@@ -633,14 +635,15 @@ impl EventHandler for Handler {
                             }
 
                             info!("User {username} changed his chime successfully.");
-                            self.respond(&command, ctx.clone(), true, None).await;
+                            self.respond(&command, ctx, true, None).await;
+                            // this await does not return
+                            return;
                         } // attachment
                         Some(CommandDataOptionValue::String(url_str)) => {
                             let url = url::Url::parse(url_str);
                             if url.is_err() {
                                 info!("User {username} supplied bad url: {url_str}");
-                                self.respond(&command, ctx.clone(), false, Some("bad-url"))
-                                    .await;
+                                self.respond(&command, ctx, false, Some("bad-url")).await;
                                 return;
                             }
                             let url = url.unwrap();
@@ -651,16 +654,14 @@ impl EventHandler for Handler {
                                     "Could not request {url_str} for user {username}: {:?}",
                                     response
                                 );
-                                self.respond(&command, ctx.clone(), false, Some("bad-url"))
-                                    .await;
+                                self.respond(&command, ctx, false, Some("bad-url")).await;
                                 return;
                             }
                             let response = response.unwrap();
                             let size = response.content_length();
                             if size.is_none() {
                                 warn!("Bad header for url from user {username}, no information about content-length");
-                                self.respond(&command, ctx.clone(), false, Some("bad-url"))
-                                    .await;
+                                self.respond(&command, ctx, false, Some("bad-url")).await;
                                 return;
                             }
                             if self.file_size_limit_bytes != -1
@@ -696,14 +697,15 @@ impl EventHandler for Handler {
                             }
 
                             info!("User {username} changed his chime successfully.");
-                            self.respond(&command, ctx.clone(), true, None).await;
+                            self.respond(&command, ctx, true, None).await;
+                            return;
                         } // url
                         _ => warn!("Malformed command received {:?}", base_option),
                     }; // match attachment, url
                 } // "set"
                 "admin" => {
                     if command.guild_id.is_none() {
-                        self.respond(&command, ctx.clone(), false, Some("only-in-guilds"))
+                        self.respond(&command, ctx, false, Some("only-in-guilds"))
                             .await;
                         return;
                     }
@@ -716,7 +718,7 @@ impl EventHandler for Handler {
 
                     if let Err(why) = invoking_member {
                         error!("Could not get invoking member: {why:?}");
-                        self.respond(&command, ctx.clone(), false, None).await;
+                        self.respond(&command, ctx, false, None).await;
                         return;
                     }
                     let invoking_member = invoking_member.unwrap();
@@ -724,7 +726,7 @@ impl EventHandler for Handler {
                     let permissions = invoking_member.permissions(&ctx);
                     if let Err(why) = permissions {
                         error!("Could not get permissions of user '{username}': {why:?}");
-                        self.respond(&command, ctx.clone(), false, None).await;
+                        self.respond(&command, ctx, false, None).await;
                         return;
                     }
                     let perm = permissions.unwrap();
@@ -733,7 +735,7 @@ impl EventHandler for Handler {
                         warn!(
                             "User '{username}' tried to execute admin command without permissions."
                         );
-                        self.respond(&command, ctx.clone(), false, Some("missing-permissions"))
+                        self.respond(&command, ctx, false, Some("missing-permissions"))
                             .await;
                         return;
                     }
@@ -763,16 +765,11 @@ impl EventHandler for Handler {
                                     self.database.set_guild_details(guild_details).await
                                 {
                                     error!("Could not set blocked role '{role}' for guild '{guild_id}': {why:?}");
-                                    self.respond(
-                                        &command,
-                                        ctx.clone(),
-                                        false,
-                                        Some("internal-error"),
-                                    )
-                                    .await;
+                                    self.respond(&command, ctx, false, Some("internal-error"))
+                                        .await;
                                 } else {
                                     info!("User '{username}' changed blocked role for guild '{guild_id}' to '{role}'");
-                                    self.respond(&command, ctx.clone(), true, None).await;
+                                    self.respond(&command, ctx, true, None).await;
                                 }
                             }
                         }
@@ -783,6 +780,7 @@ impl EventHandler for Handler {
             }; // match name
         } // if let interaction
 
-        _ = self.latest_context.lock().await.insert(ctx);
+        // borrowing issues
+        // _ = self.latest_context.lock().await.insert(ctx);
     }
 }
