@@ -178,27 +178,8 @@ async fn main() {
         .expect("Error creating client");
 
     let exec_start = Utc::now();
-
-    let client_handle = tokio::spawn(async move {
-        client
-            .start()
-            .await
-            .map_err(|err| error!("Client error: {err:?}"))
-    });
-
-    if let Err(why) = tokio::signal::ctrl_c().await {
-        error!("ctrl-c error: {why:?}");
-    }
-
-    info!(
-        "Received interrupt. Session lasted {}. Exiting...",
-        Utc::now() - exec_start
-    );
-
-    client_handle.abort();
-    if let Err(why) = client_handle.await {
-        if why.is_panic() {
-            error!("==> Client task panicked: {why:?}");
-        }
+    
+    if let Err(why) = client.start().await {
+        error!("Client error: {why:?}");
     }
 }
