@@ -25,6 +25,10 @@ When multiple users connect at the same time, their chimes will be queued and pl
 This bot is implemented to have full support for localization. This is achieved by using [.ftl](https://projectfluent.org/) resources with [fluent-rs](https://github.com/projectfluent/fluent-rs).
 
 ## How to get started
+
+### Packages
+Available on the [AUR](https://aur.archlinux.org/packages/dab-rs).
+
 ### Compilation
 Ensure that `ffmpeg` and `opus` are installed. The package names to install them on your distro my differ. For arch-based distros, the following commands will get you started:
 
