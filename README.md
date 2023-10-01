@@ -75,20 +75,21 @@ alter database dab_rs owner to INSERT_USERNAME_HERE;
 ### Configuration
 There needs to be a `Settings.toml` inside the directory of the executable. Consider the following template:
 ```toml
-USERDATA_DIR = "./userdata"
+USERDATA_DIR = "/path/to/userdata/dir"
 API_TOKEN = "foo bar baz"
 BUS_SIZE = 200
 COMMAND_ROOT = "dab"
 CHIME_DURATION_MAX_MS = 3000
 FILE_SIZE_LIMIT_KILOBYTES = 5000
 CONNECTION_TIMEOUT_MILLISECONDS = 10000
-RESOURCE_DIR = "./resources"
+RESOURCE_DIR = "/path/to/resource/dir"
 DEFAULT_LOCALE = "en-US"
 DB_HOSTNAME = "localhost"
 DB_USERNAME = "your username"
 DB_PASSWORD = "your password"
 DB_NAME = "dab_rs"
 DB_TABLE = "GuildDetails"
+LOG_PATH = "/path/to/log.file"
 ```
 - `USERDATA_DIR` specifies the path where the chimes will be saved.
 - `API_TOKEN` is your unique token from discord.
@@ -100,9 +101,11 @@ DB_TABLE = "GuildDetails"
 - `RESOURCE_DIR` is the path to the directory containing the folder structure for localization.
 - `DEFAULT_LOCALE` is the fallback locale that is to be used when translations for a users locale are not available.
 - `DB_*` are the credentials and connection details to the mysql-database that dab-rs will use.
+- `LOG_PATH` is the file where logs will be saved to.
 
 #### Commandline options
 
+- `-c`, `--config`: specifies path to configuration file 
 - `-v`, `--verbose`: enables verbose logging in stdout
 - `-b`, `--beats`: explicitly enables verbose heartbeat logging
 

@@ -15,7 +15,7 @@ use songbird::SerenityInit;
 use std::{collections::HashMap, env, sync::Arc, time::Duration};
 use unic_langid::LanguageIdentifier;
 
-fn setup_logger(verbose: bool, heartbeat: bool) -> Result<(), fern::InitError> {
+fn setup_logger(path: &str, verbose: bool, heartbeat: bool) -> Result<(), fern::InitError> {
     let colors = fern::colors::ColoredLevelConfig::new().error(fern::colors::Color::BrightRed);
 
     let file_config = fern::Dispatch::new()
@@ -32,7 +32,7 @@ fn setup_logger(verbose: bool, heartbeat: bool) -> Result<(), fern::InitError> {
         .level_for("serenity", log::LevelFilter::Warn)
         .level_for("songbird", log::LevelFilter::Warn)
         .level_for("tracing", log::LevelFilter::Warn)
-        .chain(fern::log_file("activity.log")?);
+        .chain(fern::log_file(path)?);
 
     let stdout_config = fern::Dispatch::new()
         .format(move |out, message, record| {
@@ -71,18 +71,24 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
 
     let mut opts = Options::new();
+    opts.optopt("c", "config", "Path to configuration", "FILE");
     opts.optflag("v", "verbose", "Verbose logging in stdout");
     opts.optflag("b", "beats", "Heartbeat logging in stdout");
     let opts = opts.parse(&args[1..]).expect("Bad arguments!");
 
-    setup_logger(opts.opt_present("v"), opts.opt_present("b")).expect("Could not setup logger!");
-
     let settings = Config::builder()
-        .add_source(config::File::with_name("Settings"))
+        .add_source(config::File::with_name(&opts.opt_get_default("c", String::from("Settings.toml")).unwrap()))
         .build()
         .expect("Could not build settings!")
         .try_deserialize::<HashMap<String, String>>()
         .expect("Could not deserialize settings!");
+
+    setup_logger(
+        &settings["LOG_PATH"],
+        opts.opt_present("v"),
+        opts.opt_present("b"),
+    )
+    .expect("Could not setup logger!");
 
     let intents = GatewayIntents::non_privileged()
         | GatewayIntents::MESSAGE_CONTENT

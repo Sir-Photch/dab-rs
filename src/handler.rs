@@ -467,7 +467,8 @@ impl EventHandler for Handler {
             .cleanup_watcher
             .lock()
             .await
-            .insert(self.spawn_cleanup_watcher().await);
+            .insert(self.spawn_cleanup_watcher().await)
+            .await;
     }
 
     async fn voice_state_update(

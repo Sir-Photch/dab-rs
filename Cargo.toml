@@ -1,40 +1,58 @@
-[package]
-name = "dab-rs"
-version = "0.2.2"
-edition = "2021"
+[dependencies]
+async-trait = '0.1.73'
+bus = '2.4.1'
+chrono = '0.4.31'
+config = '0.13.3'
+ffprobe = '0.3.3'
+fluent-bundle = '0.15.2'
+fs_extra = '1.3.0'
+getopts = '0.2.21'
+intl-memoizer = '0.5.1'
+log = '0.4.20'
+nameof = '1.2.2'
+reqwest = '0.11.20'
+songbird = '0.3.2'
+tokio-postgres = '0.7.10'
+unic-langid = '0.9.1'
+url = '2.4.1'
 
-[profile.release]
-strip = "symbols"
+[dependencies.fern]
+features = ['colored']
+version = '0.6.2'
 
 [dependencies.serenity]
-version = "*"
 default_features = false
-features = ["http", "builder", "client", "gateway", "cache", "temp_cache", "voice"]
+features = [
+    'http',
+    'builder',
+    'client',
+    'gateway',
+    'cache',
+    'temp_cache',
+    'voice',
+]
+version = '0.11.6'
 
 [dependencies.tokio]
-version = "*"
-features = ["rt", "rt-multi-thread", "macros", "signal", "time"]
+features = [
+    'rt',
+    'rt-multi-thread',
+    'macros',
+    'signal',
+    'time',
+]
+version = '1.32.0'
 
-# https://github.com/cross-rs/cross/issues/229#issuecomment-597898074
-[target.aarch64-unknown-linux-gnu.dependencies]
-openssl = { version = "*", features = ["vendored"] }
+[dependencies.uuid]
+features = ['v4']
+version = '1.4.1'
 
-[dependencies]
-getopts = "*"
-nameof = "*"
-tokio-postgres = "*"
-unic-langid = "*"
-fluent-bundle = "*"
-intl-memoizer = "*"
-log = "*"
-fern = { version = "*", features = ["colored"] }
-chrono = "*"
-songbird = "*" # { git = "https://github.com/serenity-rs/songbird.git" }
-url = "*"
-config = "*"
-async-trait = "*"
-ffprobe = "*"
-fs_extra = "*"
-bus = "*"
-reqwest = "*"
-uuid = { version = "*", features = ["v4"] }
+[package]
+edition = '2021'
+name = 'dab-rs'
+version = '0.2.2'
+[profile.release]
+strip = 'symbols'
+[target.aarch64-unknown-linux-gnu.dependencies.openssl]
+features = ['vendored']
+version = '*'
