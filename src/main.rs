@@ -130,7 +130,7 @@ async fn main() {
         }
     });
 
-    let database_interface = data::DatabaseInterface::new(client, settings["DB_TABLE"].to_owned());
+    let database_interface = data::DatabaseInterface::new(client, "GuildDetails");
 
     database_interface.ensure_table_exists().await;
 

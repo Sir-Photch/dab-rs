@@ -24,8 +24,8 @@ pub struct DatabaseInterface {
     table_name: String,
 }
 impl DatabaseInterface {
-    pub fn new(client: tokio_postgres::Client, table_name: String) -> Self {
-        DatabaseInterface { client, table_name }
+    pub fn new(client: tokio_postgres::Client, table_name: &str) -> Self {
+        DatabaseInterface { client: client, table_name: table_name.to_owned() }
     }
 
     pub async fn ensure_table_exists(&self) {

@@ -88,7 +88,6 @@ DB_HOSTNAME = "localhost"
 DB_USERNAME = "your username"
 DB_PASSWORD = "your password"
 DB_NAME = "dab_rs"
-DB_TABLE = "GuildDetails"
 LOG_PATH = "/path/to/log.file"
 ```
 - `USERDATA_DIR` specifies the path where the chimes will be saved.
@@ -100,7 +99,7 @@ LOG_PATH = "/path/to/log.file"
 - `CONNECTION_TIMEOUT_MILLISECONDS` is the duration that the bot will remain connected to a channel, after no other user joins a channel in the guild, in milliseconds.
 - `RESOURCE_DIR` is the path to the directory containing the folder structure for localization.
 - `DEFAULT_LOCALE` is the fallback locale that is to be used when translations for a users locale are not available.
-- `DB_*` are the credentials and connection details to the mysql-database that dab-rs will use.
+- `DB_*` are the credentials and connection details to the postgresql-database that dab-rs will use.
 - `LOG_PATH` is the file where logs will be saved to.
 
 #### Commandline options
