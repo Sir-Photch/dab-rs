@@ -1,5 +1,5 @@
 [dependencies]
-async-trait = '0.1.73'
+async-trait = '0.1.74'
 bus = '2.4.1'
 chrono = '0.4.31'
 config = '0.13.3'
@@ -10,7 +10,7 @@ getopts = '0.2.21'
 intl-memoizer = '0.5.1'
 log = '0.4.20'
 nameof = '1.2.2'
-reqwest = '0.11.20'
+reqwest = '0.11.22'
 songbird = '0.3.2'
 tokio-postgres = '0.7.10'
 unic-langid = '0.9.1'
@@ -32,7 +32,7 @@ features = [
     'voice',
     'native_tls_backend',
 ]
-version = '0.11.6'
+version = '0.11.7'
 
 [dependencies.tokio]
 features = [
@@ -42,15 +42,15 @@ features = [
     'signal',
     'time',
 ]
-version = '1.32.0'
+version = '1.33.0'
 
 [dependencies.uuid]
 features = ['v4']
-version = '1.4.1'
+version = '1.5.0'
 
 [package]
 edition = '2021'
 name = 'dab-rs'
-version = '0.2.2'
+version = '0.3.3'
 [profile.release]
 strip = 'symbols'
